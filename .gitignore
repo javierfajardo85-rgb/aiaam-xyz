@@ -1,0 +1,14 @@
+# macOS
+.DS_Store
+*.DS_Store
+
+# Documentos de planificación (privados, no van al repo de código)
+*.pages
+*.txt
+
+# El código está en la subcarpeta aiaam/
+# Solo excluimos lo que no debe subir
+aiaam/.env
+aiaam/*.db
+aiaam/__pycache__/
+aiaam/venv/

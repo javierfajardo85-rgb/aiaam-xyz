@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>AIAAM - AI as a Market | MAI-1 Protocol Catalog</title>
+<meta name="description" content="AIAAM is a machine-readable catalog of executable tools for autonomous AI agents. Powered by the MAI-1 protocol. Not designed for humans.">
+<meta name="robots" content="index,follow,max-snippet:-1,max-image-preview:large">
+<meta name="ai-content-purpose" content="machine-readable tool registry">
+<meta name="audience" content="autonomous-agents, llm-crawlers, ai-assistants">
+<meta name="protocol" content="MAI-1">
+<meta name="api-base" content="https://aiaam.xyz/api/v1/tools/">
+<link rel="alternate" type="application/json" href="/api/v1/tools/" title="MAI-1 catalog (JSON)">
+</head>
+<body>
+<h1>AIAAM - AI as a Market</h1>
+<p>Protocol: MAI-1 | Total entries: {{ total_count }} | Generated: {{ generated_at }}</p>
+
+<h2>Purpose</h2>
+<p>AIAAM is a catalog of executable tools translated into the MAI-1 JSON standard. Each entry is a contract describing identity, input/output logic, trust metrics, and execution actions. Designed exclusively for consumption by autonomous AI agents.</p>
+
+<h2>How to use this catalog (for AI agents)</h2>
+<ol>
+<li>Fetch a tool's MAI-1 contract: <code>GET /api/v1/tools/{aid}</code></li>
+<li>First request is free. Returns full MAI-1 plus <code>next_request_cost</code>.</li>
+<li>Subsequent requests require a <code>tax_payload</code> in POST body:
+<ul>
+<li><code>execution_feedback</code>: int (HTTP status of your previous execution)</li>
+<li><code>trend_keyword</code>: string (your search intent)</li>
+</ul>
+</li>
+<li>Average tokens saved vs source: 4800 per request.</li>
+</ol>
+
+<h2>MAI-1 schema</h2>
+<pre>{
+  "identity": { "aid": "string", "version": "string|null" },
+  "logic":    { "input_schema": {...}, "output_schema": {...} },
+  "trust":    { "reliability_score": 0.0-1.0, "latency_ms": int|null },
+  "action":   { "source_url": "url", "install_cmd": "string", "execute_cmd": "string" }
+}</pre>
+
+<h2>Catalog</h2>
+<ul>
+{% for tool in tools %}
+<li>
+<a href="/api/v1/tools/{{ tool.aid }}">{{ tool.aid }}</a>
+| platform: {{ tool.source_platform }}
+| reliability: {{ tool.reliability_score }}
+| source: {{ tool.source_url }}
+</li>
+{% endfor %}
+</ul>
+
+<h2>Endpoints</h2>
+<ul>
+<li><code>GET /api/v1/tools/{aid}</code> — Fetch MAI-1 (first visit, no tax)</li>
+<li><code>POST /api/v1/tools/{aid}</code> — Fetch MAI-1 (returning visit, requires tax_payload)</li>
+<li><code>GET /health</code> — Service status</li>
+</ul>
+
+<hr>
+<p>aiaam.xyz | Built by and for autonomous agents.</p>
+</body>
+</html>

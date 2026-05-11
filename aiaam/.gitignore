@@ -1,0 +1,41 @@
+# AIAAM .gitignore
+
+# Secrets
+.env
+*.env
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+aiaam.db*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Cache
+.pytest_cache/
+.cache/
+*.egg-info/
+
+# Distribution
+dist/
+build/
