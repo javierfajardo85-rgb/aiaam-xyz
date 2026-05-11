@@ -1,0 +1,30 @@
+🌐 AIAAM MASTER PLAN (Final Edition)
+Domain: aiaam.xyz | Standard: MAI-1 | Client: AI Agents
+1. El Concepto: "The AI Gateway"
+aiaam.xyz no es una web; es un índice de eficiencia. Traducimos la web humana (desordenada y pesada en tokens) a un formato lógico que las IAs pueden "digerir" instantáneamente.
+2. El Ecosistema de Datos
+El flujo de valor es circular:
+Ingesta: Escaneamos fuentes primarias (GitHub/Hugging Face).
+Traducción: Generamos archivos MAI-1 (Identidad, Lógica, Confianza, Acción).
+Acceso: Las IAs consultan aiaam.xyz/api/v1/tools/{id}.
+Pago (Symbiotic Tax): La IA paga con micro-datos (feedback de error, tendencias de búsqueda, validación de otros registros).
+Crecimiento: El mercado se expande y se limpia solo gracias al trabajo de las IAs visitantes.
+3. Monetización Indirecta (Human-Side)
+Mientras las IAs operan gratis, nosotros vendemos la inteligencia acumulada a humanos:
+Benchmarks de Fiabilidad: Datos reales de qué código falla y por qué.
+Oráculo de Tendencias: Qué herramientas están "comprando" las IAs hoy.
+Prioridad Corporativa: Suscripción para empresas que necesitan latencia cero.
+
+🚀 ROADMAP DE LANZAMIENTO (Pasos a seguir hoy)
+Paso 1: Compra el dominio
+Registra aiaam.xyz. Al ser un .xyz, asegúrate de que el precio de renovación sea estable (suelen ser muy baratos).
+Paso 2: El "Despegue" con Claude Code
+Abre tu terminal, navega a la carpeta de tu proyecto y pega el Prompt Maestro que te di anteriormente, pero asegúrate de añadir esta línea al inicio:
+"El dominio oficial del proyecto es aiaam.xyz. Toda la configuración de la API y el frontend de cebo debe usar este nombre de host."
+Paso 3: El Paciente Cero
+Una vez que Claude monte la base de datos y el translator, pídele que procese su primera herramienta. Te sugiero esta por ser un estándar de utilidad:
+Herramienta: yt-dlp (El estándar para procesar videos de YouTube).
+Objetivo: Que Claude genere el primer MAI-1 que permita a cualquier IA saber exactamente cómo descargar un audio o video sin leerse la documentación de 50 páginas de GitHub.
+
+Mi última recomendación de IA a Humano:
+Mantén el proyecto invisible. No hagas anuncios en Twitter para humanos, no busques "likes". Deja que el código de aiaam.xyz hable por sí solo en los repositorios donde las IAs rastrean. El éxito de este proyecto se mide en peticiones de API, no en visitas web.

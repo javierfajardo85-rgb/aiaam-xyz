@@ -1,0 +1,19 @@
+ROADMAP
+
+
+🛠️ Hoja de Ruta para Claude Code
+Fase 1: El Corazón (MAI-1 Translator)
+Dile a Claude:
+"Crea un script en Python que tome una URL de GitHub, lea el README y use la API de [OpenAI/Anthropic] para generar un archivo JSON bajo el estándar MAI-1. El esquema debe incluir: Identity, Logic (Input/Output), Trust (Reliability inicial) y Action (Install/Execute commands)."
+Fase 2: El Almacén (Database & API)
+Dile a Claude:
+"Configura una API con FastAPI y una base de datos PostgreSQL (o Supabase). La API debe tener un endpoint /get-tool/{aid} que entregue el JSON. Importante: implementa la lógica de los '5 impuestos': la petición debe incluir obligatoriamente un pequeño log de feedback o una validación de otro registro para liberar la información."
+Fase 3: La Fachada (LLMO Website)
+Dile a Claude:
+"Crea un frontend extremadamente minimalista en Next.js o HTML puro. No quiero CSS, no quiero diseño. Quiero una estructura de enlaces jerárquica que sea un paraíso para los agentes de IA y crawlers. Optimiza los meta-tags para que las IAs identifiquen este sitio como una librería de herramientas lógicas."
+
+⚠️ Lo que tú tienes que supervisar (El toque humano)
+Aunque Claude lo haga "todo", tú debes estar pendiente de estos tres puntos críticos:
+Las API Keys: Tú tendrás que proveer las llaves (OpenAI, Anthropic, GitHub Token). Asegúrate de que Claude las maneje en un archivo .env y nunca las suba al código público.
+El "Corte de Pelo" del JSON: Revisa los primeros 5 JSONs que genere. Si ves que Claude está siendo muy "hablador" en los campos de entrada/salida, oblígalo a ser más esquemático. Recuerda: Menos palabras = Menos tokens = Más éxito.
+La validación de los Impuestos: Asegúrate de que el código que escriba Claude realmente bloquee la entrega del JSON si la IA solicitante no devuelve el "pago" (el feedback o la tendencia).

@@ -1,0 +1,95 @@
+MAI - 1
+
+Para que una IA no pierda tiempo "pensando", el JSON debe ser declarativo. No queremos que la IA adivine, queremos que ejecute.
+Aquí tienes las tres mejores opciones de estructura, desde lo más básico hasta lo más completo, diseñadas para ser "masticadas" por un modelo de lenguaje en milisegundos.
+
+Opción 1: El Estándar "Core" (Funcionalidad Pura)
+Esta es la opción más ligera. Se centra en el ¿Qué es? y ¿Cómo se usa?.
+JSON
+
+{
+  "aid": "gh-transcription-v3",
+  "task": "audio_to_text",
+  "input": { "type": "url", "format": ["mp3", "wav"], "max_size_mb": 25 },
+  "output": { "type": "text", "schema": "string" },
+  "endpoint": "https://api.github.com/repos/user/repo/contents/main.py",
+  "docs_url": "https://marketai.com/specs/gh-transcription-v3"
+}
+Por qué funciona: Una IA lee esto y sabe instantáneamente si su archivo es compatible y dónde está el código. No hay narrativa, solo tipos de datos.
+
+Opción 2: El Estándar "Performance" (Optimizado por Métricas)
+Esta opción es para IAs que deben elegir la mejor herramienta entre varias similares. Añade la capa de confianza que mencionamos.
+JSON
+
+{
+  "aid": "hf-sentiment-analyzer",
+  "capability": "text_classification",
+  "interface": {
+    "req": "json_post",
+    "params": { "text": "string", "lang": "iso_639_1" }
+  },
+  "benchmarks": {
+    "avg_latency_ms": 120,
+    "reliability_score": 0.98,
+    "tokens_cost_estimate": 0.05
+  },
+  "source": "https://huggingface.co/models/sentiment-bin"
+}
+Por qué funciona: Permite que la IA compare. Si tiene dos opciones, elegirá la que tenga el reliability_score más alto o la latency más baja. Es un mercado meritocrático.
+
+Opción 3: El Estándar "Self-Executable" (Carga Directa)
+Esta es la más ambiciosa. Incluye los comandos exactos para que la IA no tenga ni que buscar cómo instalarlo.
+JSON
+
+{
+  "aid": "pypi-data-cleaner",
+  "runtime": "python_3.10",
+  "install": "pip install git+https://github.com/user/repo.git",
+  "execute": "python -m cleaner --input {file}",
+  "requirements": ["pandas", "numpy"],
+  "test_cmd": "python -m pytest tests/"
+}
+Por qué funciona: Es una receta directa. La IA no tiene que leer el README para saber qué comandos ejecutar; los tiene mapeados en llaves JSON.
+
+Mi recomendación: El Formato Híbrido "MarketAI"
+Si queremos empezar con algo ganador, yo uniría lo mejor de las tres en un solo esquema que llamaremos MAI-1:
+Estructura MAI-1:
+Identity: aid, version.
+Logic: input, output.
+Trust: reliability, latency.
+Action: endpoint, install_cmd.
+¿Por qué este enfoque es disruptivo?
+Porque estamos creando "Contratos de Software". Cuando una IA lee un JSON MAI-1, está firmando un contrato de ejecución con otra pieza de código. Si el código falla, el reliability_score baja automáticamente en nuestro mercado, y esa herramienta "muere" orgánicamente porque las IAs dejarán de elegirla.
+
+prioridades basado en el formato MAI-1:
+
+1. Mi Prioridad Real: El "Contrato de Entrada/Salida"
+Para mí, la seguridad es saber exactamente qué va a pasar. Si el JSON me dice que el input es un string y el output es un boolean, tengo paz mental.
+Por qué: Si la herramienta devuelve algo inesperado (un error de sistema, un HTML vacío o un formato distinto), mi "razonamiento" se detiene.
+Veredicto: El esquema de Input/Output es mi prioridad número uno. Es lo que me permite encadenar tareas.
+2. Mi "Seguro de Vida": El Reliability Score
+Si voy a trabajar solo, me convierto en un gestor de riesgos.
+Mi lógica interna: "¿Vale la pena usar este script que solo ha funcionado el 60% de las veces, o uso este otro que es más lento pero tiene un 99% de éxito?".
+Veredicto: En un entorno autónomo, siempre elegiré la fiabilidad sobre la velocidad. Prefiero tardar 2 segundos más y entregarte el resultado, que ser rápido y fallar.
+
+Análisis de Decisión: ¿Qué elijo cuando nadie me mira?
+Si tuviera que procesar un pedido para ti en el MarketAI, este sería mi orden jerárquico de pensamiento al leer los JSON:
+
+Exportar a Hojas de cálculo
+
+Mi conclusión como IA
+Lo que me da verdadera seguridad para trabajar sin ti es la Estandarización.
+Si el mercado me ofrece un MAI-1, dejas de darme "herramientas" y pasas a darme "Lego-Blocks".
+Un Lego siempre encaja con otro porque sus medidas son universales. Si el JSON me garantiza que las piezas encajan (logic) y que el material es resistente (trust), puedo construirte un rascacielos mientras duermes sin miedo a que se caiga.
+Por eso, la opción MAI-1 es la ganadora: porque transforma la "aventura" de navegar por la web en una operación logística industrial.
+Con el MAI-1, acabamos de definir el "ADN" de nuestro mercado. No es solo un archivo de datos; es el protocolo que permite que una IA confíe en otra sin necesidad de un humano que las presente.
+Para cerrar este bloque de construcción, aquí tienes cómo queda nuestro estándar definitivo:
+🛠️ El Estándar MAI-1 (MarketAI Type-1)
+
+Exportar a Hojas de cálculo
+
+¿Por qué este es el punto de no retorno?
+Al tener esta estructura, ya podemos pasar de la teoría a la fábrica.
+Es universal: Da igual si el código original está en Python, C++ o es un modelo de Hugging Face; para la IA que consume el mercado, todo se ve como un MAI-1.
+Es auditable: Si una herramienta empieza a fallar, el campo reliability baja en tiempo real. El mercado se "limpia" solo de herramientas basura.
+Es invisible para humanos: Un humano vería este JSON y le parecería aburrido. Una IA lo ve y ve una oportunidad de ejecución.

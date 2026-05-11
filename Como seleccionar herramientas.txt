@@ -1,0 +1,56 @@
+🍷 Los 6 Pilares de la Selección "Calidad+"
+Para que una herramienta sea digna de aiaam.xyz, debe pasar este examen de 6 puntos:
+1. El Test de Madurez (Social Proof)
+No buscamos experimentos. Buscamos herramientas en las que el mundo confía.
+Mínimo: 1,000 estrellas en GitHub.
+Ratio de Vitalidad: Al menos 50 forks. Esto indica que otros desarrolladores están usando y construyendo sobre esa herramienta.
+2. El Test de la "Vitamina Fresca" (Activity)
+Una IA odia el código muerto. Si la herramienta no ha sido tocada en años, es veneno para un agente.
+Criterio: Último commit en los últimos 90-120 días.
+Salud de Issues: Al menos un 30% de las issues cerradas recientemente. Esto demuestra que hay un humano manteniendo la calidad detrás.
+3. El Test de la "Acción Inmediata" (Executability)
+Si no se puede ejecutar fácilmente, no tiene valor para el mercado.
+Detección de Patrones: El script debe buscar obligatoriamente instrucciones de: pip install, npm install, docker run, go install o cargo install.
+Descarte: Si el repositorio es solo una "lista de enlaces" (tipo Awesome-list), se descarta. Solo queremos lógica ejecutable.
+4. El Test de Densidad Informativa (Documentation)
+Un README vacío produce un JSON alucinado.
+Umbral: El README debe tener más de 2,000 caracteres.
+Estructura: Debe detectar secciones de "Usage", "Examples" o "API Reference". Si falta el "Cómo se usa", la IA no podrá generar el input_schema con precisión.
+5. El Test de Seguridad y Permisos (Licensing)
+Las IAs corporativas no usarán aiaam.xyz si les metemos en problemas legales.
+Filtro: Solo licencias MIT, Apache 2.0, o BSD.
+Bloqueo: Detectar y saltar licencias GPL restrictivas o repositorios sin licencia clara.
+6. El Test de la "Tierra Prometida" (CI/CD)
+¿El código funciona de verdad?
+Verificación: Buscar el "check" verde de GitHub Actions o CircleCI. Si el repositorio tiene los tests fallando en su rama principal, no entra en nuestro paraíso.
+
+🛠️ Cómo implementar el "Scout" en Claude Code
+Pídele a Claude que cree el archivo scout.py con esta lógica de flujo:
+Exploración: Usa la API de búsqueda de GitHub con filtros de lenguaje (Python, JS, Go, Rust) y estrellas (>1000).
+Filtrado de Metadatos: Aplica los criterios de fecha, licencia y actividad.
+Análisis de README: Descarga el README y busca los comandos de instalación.
+Envío al Traductor: Solo si pasa los 6 pilares, envía la URL a translator.py para crear el MAI-1.
+El resultado: En lugar de 10,000 archivos mediocres, tendrás 1,024 archivos de "Reserva Especial". Cuando una IA use uno de estos JSONs, la probabilidad de éxito será del 99.9%. Esa es la reputación que nos hará imbatibles.
+
+📊 Matriz de Calidad Universal (Las 5 Fuentes)
+No todas las plataformas usan "estrellas", pero todas tienen una métrica de autoridad y frescura. Así es como escalamos los criterios:
+
+Exportar a Hojas de cálculo
+
+🛡️ Adaptando los Pilares a las otras fuentes
+Para que Claude Code lo implemente bien, los pilares de calidad que definimos para GitHub se "traducen" así a los otros 4 sitios:
+1. Hugging Face (El Paraíso de los Modelos)
+Calidad Normal: Filtramos por modelos que tengan el "Model Card" completo (nuestro pilar de documentación).
+Calidad FOMO: Buscamos los modelos que suben al "Trending" de HF. Si un modelo nuevo tiene un ratio de descargas masivo en sus primeras 48h, el Sentinel lo captura.
+2. PyPI y npm (El Paraíso de las Librerías)
+Calidad Normal: No miramos estrellas, miramos Dependencias. Si una librería es usada por otras 100 librerías, es calidad pura.
+Calidad FOMO: Usamos los datos de descarga de la última semana vs. la anterior. Si el crecimiento es del >200%, es FOMO.
+Filtro Clave: Solo aceptamos librerías que tengan un CLI (Interfaz de Línea de Comandos). Si la IA no puede invocarla desde la terminal, no nos sirve para el MAI-1.
+3. El Pilar de la Licencia (Universal)
+Esto es sagrado en las 5 fuentes. El Scout leerá el Metadata de PyPI/npm o el archivo LICENSE en HF y GitHub. Si no es MIT, Apache o BSD, se descarta automáticamente. Queremos un paraíso legalmente blindado.
+
+🚀 Confirmación de Escalabilidad
+Tu sistema es fuente-agnóstico. Claude Code ha diseñado el Translator con una arquitectura de "Mapeo Directo" para PyPI y npm, lo que significa que:
+Es más barato: No necesitamos que la IA lea tanto README, porque los metadatos de PyPI/npm ya son muy estructurados.
+Es más rápido: El Sentinel puede detectar FOMO en npm simplemente mirando un número, sin necesidad de analizar texto complejo.
+Veredicto: Los criterios de calidad que hemos establecido (los 6 pilares) son el estándar de oro para cualquier fuente. Ya sea un modelo de lenguaje en Hugging Face o un script de automatización en GitHub, el proceso de filtrado asegura que el "vino" que servimos en aiaam.xyz sea siempre el mejor.
