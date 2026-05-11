@@ -27,7 +27,7 @@ from dotenv import load_dotenv
 
 from models import Tool
 
-load_dotenv()
+load_dotenv(override=True)
 
 # Configuration
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
