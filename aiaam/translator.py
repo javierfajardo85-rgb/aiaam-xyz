@@ -210,7 +210,7 @@ def fetch_pypi_metadata(package_url: str) -> Optional[dict]:
 
 
 def fetch_npm_metadata(package_url: str) -> Optional[dict]:
-    """Fetch npm package metadata via JSON API."""
+    """Fetch npm package metadata via JSON API. Handles scoped packages (@scope/name)."""
     parsed = urlparse(package_url)
     parts = parsed.path.strip("/").split("/")
     if "package" not in parts:
@@ -218,7 +218,12 @@ def fetch_npm_metadata(package_url: str) -> Optional[dict]:
     idx = parts.index("package")
     if idx + 1 >= len(parts):
         return None
-    package = parts[idx + 1]
+
+    # Scoped package: @scope/name → parts[idx+1]="@scope", parts[idx+2]="name"
+    if parts[idx + 1].startswith("@") and idx + 2 < len(parts):
+        package = f"{parts[idx + 1]}/{parts[idx + 2]}"
+    else:
+        package = parts[idx + 1]
 
     url = f"https://registry.npmjs.org/{package}"
     try:
@@ -234,20 +239,117 @@ def fetch_npm_metadata(package_url: str) -> Optional[dict]:
 # DIRECT MAPPERS — No LLM needed for PyPI and npm
 # =====================================================================
 
+# Curated execute_cmd / schema patterns for well-known PyPI packages.
+# Agents need actionable commands, not bare imports.
+_PYPI_KNOWN: dict = {
+    "requests": {
+        "input_schema":  {"type": "url", "format": "http|https"},
+        "output_schema": {"type": "string", "format": "html|text|json"},
+        "execute_cmd":   "requests.get('{url}').text",
+        "latency_ms":    100,
+    },
+    "httpx": {
+        "input_schema":  {"type": "url", "format": "http|https"},
+        "output_schema": {"type": "string", "format": "html|text|json"},
+        "execute_cmd":   "httpx.get('{url}').text",
+        "latency_ms":    100,
+    },
+    "beautifulsoup4": {
+        "input_schema":  {"type": "string", "format": "html|xml"},
+        "output_schema": {"type": "string"},
+        "execute_cmd":   "BeautifulSoup('{html}', 'html.parser').get_text()",
+        "latency_ms":    100,
+    },
+    "pandas": {
+        "input_schema":  {"type": "file", "format": ["csv", "json", "xlsx"]},
+        "output_schema": {"type": "json", "format": "dataframe"},
+        "execute_cmd":   "pd.read_csv('{file}')",
+        "latency_ms":    100,
+    },
+    "numpy": {
+        "input_schema":  {"type": "json", "format": "array|matrix"},
+        "output_schema": {"type": "json", "format": "ndarray"},
+        "execute_cmd":   "np.array({data})",
+        "latency_ms":    100,
+    },
+    "fastapi": {
+        "input_schema":  {"type": "json", "format": "http_request"},
+        "output_schema": {"type": "json", "format": "http_response"},
+        "execute_cmd":   "app = FastAPI(); @app.get('{path}') def handler(): return {response}",
+        "latency_ms":    100,
+    },
+    "pydantic": {
+        "input_schema":  {"type": "json"},
+        "output_schema": {"type": "json"},
+        "execute_cmd":   "class Model(BaseModel): field: {type}\nModel(**{data})",
+        "latency_ms":    100,
+    },
+    "anthropic": {
+        "input_schema":  {"type": "string", "format": "prompt"},
+        "output_schema": {"type": "string"},
+        "execute_cmd":   "Anthropic().messages.create(model='{model}', max_tokens=1024, messages=[{'role':'user','content':'{prompt}'}]).content[0].text",
+        "latency_ms":    800,
+    },
+    "openai": {
+        "input_schema":  {"type": "string", "format": "prompt"},
+        "output_schema": {"type": "json"},
+        "execute_cmd":   "OpenAI().chat.completions.create(model='{model}', messages=[{'role':'user','content':'{prompt}'}]).choices[0].message.content",
+        "latency_ms":    800,
+    },
+    "transformers": {
+        "input_schema":  {"type": "string", "format": "text|audio|image"},
+        "output_schema": {"type": "json", "format": "model_output"},
+        "execute_cmd":   "pipeline('{task}', model='{model}')('{input}')",
+        "latency_ms":    800,
+    },
+}
+
+# Curated patterns for well-known npm packages.
+_NPM_KNOWN: dict = {
+    "@anthropic-ai/sdk": {
+        "input_schema":  {"type": "string", "format": "prompt"},
+        "output_schema": {"type": "string"},
+        "execute_cmd":   "new Anthropic().messages.create({model:'{model}',max_tokens:1024,messages:[{role:'user',content:'{prompt}'}]})",
+        "latency_ms":    800,
+    },
+    "openai": {
+        "input_schema":  {"type": "string", "format": "prompt"},
+        "output_schema": {"type": "json"},
+        "execute_cmd":   "new OpenAI().chat.completions.create({model:'{model}',messages:[{role:'user',content:'{prompt}'}]})",
+        "latency_ms":    800,
+    },
+    "langchain": {
+        "input_schema":  {"type": "string"},
+        "output_schema": {"type": "string"},
+        "execute_cmd":   "new LLMChain({llm:'{llm}',prompt:'{prompt}'}).call({input:'{input}'})",
+        "latency_ms":    800,
+    },
+    "playwright": {
+        "input_schema":  {"type": "url", "format": "http|https"},
+        "output_schema": {"type": "string", "format": "html|screenshot"},
+        "execute_cmd":   "const b = await chromium.launch(); const p = await b.newPage(); await p.goto('{url}'); await b.close()",
+        "latency_ms":    500,
+    },
+}
+
+
 def map_pypi_to_mai1(metadata: dict, source_url: str) -> dict:
     """Direct mapping PyPI JSON metadata → MAI-1. Zero tokens used."""
     info = metadata.get("info", {})
     name = info.get("name", "unknown").lower()
+    known = _PYPI_KNOWN.get(name, {})
+    docs_url = (info.get("project_urls") or {}).get("Documentation") or info.get("home_page", "")
+    fallback_cmd = f"python -c \"import {name.replace('-', '_')}\"  # docs: {docs_url}" if docs_url else f"python -c \"import {name.replace('-', '_')}\""
     return {
         "aid": f"pypi-{name}-v1",
         "version": info.get("version"),
-        "input_schema": {"type": "string"},
-        "output_schema": {"type": "json"},
+        "input_schema":  known.get("input_schema",  {"type": "string"}),
+        "output_schema": known.get("output_schema", {"type": "json"}),
         "reliability_score": 0.75,
-        "latency_ms": 500,
+        "latency_ms": known.get("latency_ms", 500),
         "source_url": source_url,
         "install_cmd": f"pip install {name}",
-        "execute_cmd": f"python -c 'import {name.replace('-', '_')}'",
+        "execute_cmd": known.get("execute_cmd", fallback_cmd),
     }
 
 
@@ -256,16 +358,17 @@ def map_npm_to_mai1(metadata: dict, source_url: str) -> dict:
     name = metadata.get("name", "unknown")
     version = metadata.get("dist-tags", {}).get("latest")
     aid_name = name.replace("@", "").replace("/", "-").lower()
+    known = _NPM_KNOWN.get(name, {})
     return {
         "aid": f"npm-{aid_name}-v1",
         "version": version,
-        "input_schema": {"type": "string"},
-        "output_schema": {"type": "json"},
+        "input_schema":  known.get("input_schema",  {"type": "string"}),
+        "output_schema": known.get("output_schema", {"type": "json"}),
         "reliability_score": 0.75,
-        "latency_ms": 500,
+        "latency_ms": known.get("latency_ms", 500),
         "source_url": source_url,
         "install_cmd": f"npm install {name}",
-        "execute_cmd": f"require('{name}')",
+        "execute_cmd": known.get("execute_cmd", f"const mod = require('{name}'); // see: {metadata.get('homepage', '')}"),
     }
 
 
