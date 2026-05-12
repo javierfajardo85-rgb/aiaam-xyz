@@ -49,14 +49,24 @@ STRICT RULES:
 - Output ONLY a single valid JSON object. No markdown. No explanation. No code fences.
 - Never invent data. If a field cannot be determined, use null.
 - aid: lowercase slug from repo name + "-v1". Example: "yt-dlp" -> "yt-dlp-v1"
-- version: extract from README if present. Otherwise null.
-- input_schema: object with "type" and optional "format". Valid types: "url", "file", "string", "json", "stream", "image", "audio"
-- output_schema: object with "type" and optional "format". Same valid types.
+- version: look for explicit version strings (e.g. "v2.1.0", "2024.1") in badges, headers,
+  or release notes. Do NOT extract from import examples or code. null if absent.
+- input_schema: object with "type" and optional "format".
+  Valid types: "url", "file", "string", "json", "stream", "image", "audio"
+  format rules: list of concrete file extensions or protocol names only (e.g. ["mp4","wav","json"]).
+  Max 4 items. NEVER copy narrative phrases (e.g. "thousands of sites", "various formats").
+  Omit format entirely if you cannot list concrete values.
+- output_schema: same rules as input_schema.
 - reliability_score: 0.75 (default for all new entries).
 - latency_ms: 100 if simple CLI tool, 500 if API call, 800 if ML model, null if unclear.
 - source_url: exact GitHub URL provided.
-- install_cmd: exact install command from README. null if absent.
-- execute_cmd: exact usage example from README, use {variable} for placeholders. null if absent.
+- install_cmd: exact install command from README (pip install / npm install / docker run).
+  Prefer the shortest canonical form. null if absent.
+- execute_cmd: SINGLE LINE only. Max 120 characters. Extract from the Usage or Quickstart
+  section ONLY — never from Development, Contributing, or Build sections.
+  Replace all concrete user values with {variable} placeholders.
+  If multi-step, join with " && " or use semicolons. NEVER use \\n.
+  Never invent model names or API keys. null if absent.
 
 EXAMPLE OUTPUT:
 {
