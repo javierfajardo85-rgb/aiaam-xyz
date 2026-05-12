@@ -5,6 +5,7 @@
 # Documentos de planificación (privados, no van al repo de código)
 *.pages
 *.txt
+!**/requirements.txt
 
 # El código está en la subcarpeta aiaam/
 # Solo excluimos lo que no debe subir

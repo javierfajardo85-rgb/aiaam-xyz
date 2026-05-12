@@ -1,0 +1,31 @@
+# AIAAM - AI as a Market
+# Python 3.11+
+
+# API Framework
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+
+# Database
+sqlmodel==0.0.22
+sqlalchemy==2.0.35
+psycopg2-binary==2.9.10
+
+# LLM Translator
+anthropic==0.39.0
+
+# HTTP Client (GitHub, HF, PyPI, npm)
+httpx==0.27.2
+requests==2.32.3
+
+# Templates LLMO
+jinja2==3.1.4
+
+# Env vars
+python-dotenv==1.0.1
+
+# Data validation
+pydantic==2.9.2
+
+# Markdown parsing (READMEs)
+beautifulsoup4==4.12.3
+markdown==3.7

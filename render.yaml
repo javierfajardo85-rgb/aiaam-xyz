@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: aiaam-xyz
+    runtime: python
+    rootDir: aiaam
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: aiaam-postgres
+          property: connectionString
+      - key: ANTHROPIC_API_KEY
+        sync: false          # set manually in Render dashboard (secret)
+      - key: ADMIN_SECRET
+        sync: false          # set manually in Render dashboard (secret)
+      - key: TRANSLATOR_MODEL_PRIMARY
+        value: claude-haiku-4-5-20251001
+      - key: TRANSLATOR_MODEL_REVIEWER
+        value: claude-sonnet-4-6
+    autoDeploy: true
+
+databases:
+  - name: aiaam-postgres
+    databaseName: aiaam
+    plan: free
