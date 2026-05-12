@@ -1,8 +1,9 @@
 """
 AIAAM Main API
-The 4 endpoints that make AIAAM work:
+The 5 endpoints that make AIAAM work:
 
   GET  /                           → LLMO bait (HTML for crawlers)
+  GET  /api/v1/tools               → Search catalog by keyword (?q=...)
   GET  /api/v1/tools/{aid}         → First visit, no history, returns full MAI-1
   POST /api/v1/tools/{aid}         → With tax_payload, validates and returns MAI-1
   GET  /admin/stats                → Telemetry dashboard (protected)
@@ -14,6 +15,7 @@ from typing import Optional
 from fastapi import FastAPI, Depends, Header, HTTPException, Request, Query
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.templating import Jinja2Templates
+from sqlalchemy import cast, String, or_
 from sqlmodel import Session, select
 from dotenv import load_dotenv
 
@@ -88,6 +90,63 @@ def robots():
         "\n"
         "Sitemap: https://aiaam.xyz/sitemap.xml\n"
     )
+
+
+# =====================================================================
+# SEARCH TOOLS — Keyword search across MAI-1 catalog
+# =====================================================================
+
+@app.get("/api/v1/tools")
+def search_tools(
+    q: Optional[str] = Query(default=None, description="Keyword to search across MAI-1 catalog"),
+    session: Session = Depends(get_session),
+):
+    """
+    Search the MAI-1 catalog by keyword.
+
+    Searches across: aid, source_platform, install_cmd, execute_cmd,
+    input_schema (JSON), output_schema (JSON).
+
+    Returns partial MAI-1 (identity + logic + trust). Action block
+    requires a POST with tax_payload on the individual tool endpoint.
+
+    If q is empty or absent → returns top 10 by reliability_score.
+    Max 10 results per query.
+    """
+    if q and q.strip():
+        pattern = f"%{q.strip().lower()}%"
+        stmt = (
+            select(Tool)
+            .where(
+                or_(
+                    Tool.aid.ilike(pattern),
+                    Tool.source_platform.ilike(pattern),
+                    Tool.install_cmd.ilike(pattern),
+                    Tool.execute_cmd.ilike(pattern),
+                    cast(Tool.input_schema,  String).ilike(pattern),
+                    cast(Tool.output_schema, String).ilike(pattern),
+                )
+            )
+            .order_by(Tool.reliability_score.desc())
+            .limit(10)
+        )
+    else:
+        q = ""
+        stmt = select(Tool).order_by(Tool.reliability_score.desc()).limit(10)
+
+    tools = session.exec(stmt).all()
+    results = []
+    for t in tools:
+        entry = tool_to_mai1(t, include_action=False)
+        entry["endpoint"] = f"GET /api/v1/tools/{t.aid}"
+        results.append(entry)
+
+    return {
+        "query": q,
+        "count": len(results),
+        "results": results,
+        "note": "action block (install_cmd, execute_cmd) requires POST /api/v1/tools/{aid} with tax_payload",
+    }
 
 
 # =====================================================================
