@@ -43,75 +43,61 @@ client = Anthropic(api_key=ANTHROPIC_API_KEY) if ANTHROPIC_API_KEY else None
 # PROMPTS — Strict JSON output, declarative, deterministic
 # =====================================================================
 
-PROMPT_GITHUB_README = """ROLE: JSON converter. Input: raw README text. Output: MAI-1 object.
+PROMPT_GITHUB_README = """ROLE: JSON converter. Input: README sections. Output: MAI-1 object.
 
 STRICT RULES:
 - Output ONLY a single valid JSON object. No markdown. No explanation. No code fences.
-- Never invent data. If a field cannot be determined, use null.
+- NEVER invent data. If a field cannot be determined from the text, use null. No exceptions.
 - aid: lowercase slug from repo name + "-v1". Example: "yt-dlp" -> "yt-dlp-v1"
-- version: look for explicit version strings (e.g. "v2.1.0", "2024.1") in badges, headers,
-  or release notes. Do NOT extract from import examples or code. null if absent.
-- input_schema: object with "type" and optional "format".
-  Valid types: "url", "file", "string", "json", "stream", "image", "audio"
-  format rules: list of concrete file extensions or protocol names only (e.g. ["mp4","wav","json"]).
-  Max 4 items. NEVER copy narrative phrases (e.g. "thousands of sites", "various formats").
-  Omit format entirely if you cannot list concrete values.
-- output_schema: same rules as input_schema.
-- reliability_score: 0.75 (default for all new entries).
-- latency_ms: 100 if simple CLI tool, 500 if API call, 800 if ML model, null if unclear.
-- source_url: exact GitHub URL provided.
-- install_cmd: exact install command from README (pip install / npm install / docker run).
-  Prefer the shortest canonical form. null if absent.
-- execute_cmd: SINGLE LINE only. Max 120 characters. Extract from the Usage or Quickstart
-  section ONLY — never from Development, Contributing, or Build sections.
-  Replace all concrete user values with {variable} placeholders.
-  If multi-step, join with " && " or use semicolons. NEVER use \\n.
-  Never invent model names or API keys. null if absent.
+- version: look ONLY for explicit version strings in badge markdown or release headers
+  (e.g. "v2.1.0", "2024.1"). Do NOT extract from import statements or code. null if absent.
+- input_schema / output_schema: object with "type" and optional "format".
+  type — ONLY one of: "url" "file" "string" "json" "stream" "image" "audio"
+  format — array of max 5 concrete file extensions (e.g. ["mp4","wav","json","png"]).
+  NEVER use narrative phrases ("thousands of sites", "various", "many", etc.).
+  NEVER use adjectives or descriptions. Omit format entirely if no concrete extensions exist.
+- reliability_score: always 0.75. Do not change this value.
+- latency_ms: 100 (CLI), 500 (API call), 800 (ML model), null (unclear). No other values.
+- source_url: exact GitHub URL provided. Do not modify.
+- install_cmd: copy the EXACT shortest install command from the Installation section.
+  Accepted forms: pip install X, npm install X, docker run ..., brew install X.
+  Do NOT modify the command. null if absent.
+- execute_cmd: SINGLE LINE, max 120 chars. Extract from Usage or Quickstart section ONLY.
+  Never from Development, Contributing, or Build sections.
+  Replace all user-specific values with {placeholder} variables.
+  Join multi-step commands with " && ". NEVER use \\n.
+  NEVER invent model names, endpoints, or API keys. null if absent.
 
-EXAMPLE OUTPUT:
-{
-  "aid": "yt-dlp-v1",
-  "version": "2024.1.0",
-  "input_schema": {"type": "url", "format": ["youtube", "vimeo", "mp4"]},
-  "output_schema": {"type": "file", "format": ["mp4", "mp3"]},
-  "reliability_score": 0.75,
-  "latency_ms": 100,
-  "source_url": "https://github.com/yt-dlp/yt-dlp",
-  "install_cmd": "pip install yt-dlp",
-  "execute_cmd": "yt-dlp {url}"
-}
+EXAMPLE (inline, one JSON object):
+{"aid":"yt-dlp-v1","version":null,"input_schema":{"type":"url","format":["youtube","mp4"]},"output_schema":{"type":"file","format":["mp4","mp3"]},"reliability_score":0.75,"latency_ms":100,"source_url":"https://github.com/yt-dlp/yt-dlp","install_cmd":"pip install yt-dlp","execute_cmd":"yt-dlp {url}"}
 
 REPO URL: {source_url}
-README CONTENT:
+README SECTIONS:
 {readme_content}"""
 
 
 PROMPT_HF_MODEL_CARD = """ROLE: JSON converter. Input: HuggingFace model card. Output: MAI-1 object.
 
 STRICT RULES:
-- Output ONLY a single valid JSON object. No markdown. No explanation.
-- aid: lowercase slug from model_id (replace "/" with "-") + "-v1". Example: "openai/whisper-large" -> "openai-whisper-large-v1"
-- version: model version if specified, otherwise null.
-- input_schema: based on model task. {"type": "audio"} for ASR, {"type": "string"} for text models, etc.
-- output_schema: based on model task. {"type": "string"} for text generation, {"type": "json"} for classification.
-- reliability_score: 0.75 default.
-- latency_ms: 800 (ML models default).
-- source_url: full HuggingFace URL.
-- install_cmd: "pip install transformers" by default, or specific if mentioned.
-- execute_cmd: HuggingFace pipeline call format. Example: "pipeline('automatic-speech-recognition', model='{model_id}')"
+- Output ONLY a single valid JSON object. No markdown. No explanation. No code fences.
+- NEVER invent data. If a field cannot be determined, use null. No exceptions.
+- aid: lowercase slug from model_id (replace "/" with "-") + "-v1".
+  Example: "openai/whisper-large" -> "openai-whisper-large-v1"
+- version: model version if explicitly stated, otherwise null. Do not infer.
+- input_schema / output_schema: object with "type" and optional "format".
+  type — ONLY one of: "url" "file" "string" "json" "stream" "image" "audio"
+  format — array of max 5 concrete file extensions (e.g. ["mp3","wav","flac"]).
+  NEVER use narrative phrases. Omit format if no concrete extensions exist.
+- reliability_score: 0.75 (default, do not change).
+- latency_ms: 800 (all ML models default).
+- source_url: full HuggingFace URL provided. Do not modify.
+- install_cmd: "pip install transformers" unless a specific library is required.
+- execute_cmd: pipeline call format, SINGLE LINE, max 120 chars.
+  Use the exact model_id as a literal string (not a placeholder).
+  Replace task-specific inputs with {placeholder} variables.
 
-EXAMPLE OUTPUT:
-{
-  "aid": "openai-whisper-large-v1",
-  "version": "v3",
-  "input_schema": {"type": "audio", "format": ["mp3", "wav", "flac"]},
-  "output_schema": {"type": "string"},
-  "reliability_score": 0.75,
-  "latency_ms": 800,
-  "source_url": "https://huggingface.co/openai/whisper-large-v3",
-  "install_cmd": "pip install transformers",
-  "execute_cmd": "pipeline('automatic-speech-recognition', model='openai/whisper-large-v3')"
-}
+EXAMPLE (inline):
+{"aid":"openai-whisper-large-v3-v1","version":"v3","input_schema":{"type":"audio","format":["mp3","wav","flac"]},"output_schema":{"type":"string"},"reliability_score":0.75,"latency_ms":800,"source_url":"https://huggingface.co/openai/whisper-large-v3","install_cmd":"pip install transformers","execute_cmd":"pipeline('automatic-speech-recognition', model='openai/whisper-large-v3')('{audio_path}')"}
 
 MODEL URL: {source_url}
 MODEL CARD:
@@ -243,6 +229,99 @@ def fetch_npm_metadata(package_url: str) -> Optional[dict]:
     except Exception:
         return None
     return None
+
+
+# =====================================================================
+# README SECTION EXTRACTOR — Reduces LLM input ~15k → ~3k tokens
+# =====================================================================
+
+# Keywords that identify sections worth sending to the LLM.
+# Only these contain install commands and usage examples.
+CRITICAL_SECTIONS = {
+    "installation", "install", "setup", "getting started", "get started",
+    "usage", "quickstart", "quick start", "quick-start",
+    "examples", "example", "how to use", "how to run",
+    "requirements", "prerequisites",
+}
+
+
+def extract_critical_sections(readme_text: str) -> str:
+    """
+    Extract only Installation + Usage sections from a README.
+    Reduces LLM input from ~15,000 chars to ~3,000.
+
+    If no structured headers are found (e.g. README has no ## sections),
+    falls back to the first 3,000 characters of the raw text.
+    """
+    lines = readme_text.split("\n")
+    sections: dict = {}
+    current_key: Optional[str] = None
+    current_lines: list = []
+
+    for line in lines:
+        header = re.match(r"^#{1,4}\s+(.+)", line)
+        if header:
+            # Flush previous section
+            if current_key is not None:
+                sections[current_key] = "\n".join(current_lines).strip()
+            current_key = header.group(1).strip().lower()
+            current_lines = [line]
+        elif current_key is not None:
+            current_lines.append(line)
+
+    # Flush last section
+    if current_key is not None:
+        sections[current_key] = "\n".join(current_lines).strip()
+
+    # Collect only critical sections (cap each at 1,500 chars)
+    extracted: list = []
+    for title, body in sections.items():
+        if any(kw in title for kw in CRITICAL_SECTIONS):
+            extracted.append(body[:1500])
+
+    if extracted:
+        combined = "\n\n".join(extracted)
+        # Only use extracted content if it's substantial enough for the LLM
+        if len(combined) >= 150:
+            return combined[:3000]
+
+    # Fallback: no sections found OR extracted content too short (e.g. emoji headers
+    # with minimal content, READMEs with non-standard structure)
+    return readme_text[:3000]
+
+
+# =====================================================================
+# RELIABILITY CALCULATOR — Dynamic initial score from README signals
+# =====================================================================
+
+def calculate_initial_reliability(readme_text: str) -> float:
+    """
+    Score a README's quality signals to set an honest initial reliability_score.
+
+    Scoring:
+      base                          +0.50
+      has code blocks (```)         +0.20
+      has installation section      +0.15
+      has usage / examples section  +0.10
+      README < 500 chars            -0.30  (stub / empty README)
+    Cap: 0.85  (real score only rises with actual execution feedback)
+    """
+    score = 0.50
+    lower = readme_text.lower()
+
+    if "```" in readme_text:
+        score += 0.20
+
+    if re.search(r"#{1,4}\s*(install|setup|getting.?started)", lower):
+        score += 0.15
+
+    if re.search(r"#{1,4}\s*(usage|quickstart|quick.?start|example)", lower):
+        score += 0.10
+
+    if len(readme_text) < 500:
+        score -= 0.30
+
+    return round(min(score, 0.85), 2)
 
 
 # =====================================================================
@@ -440,6 +519,24 @@ def review_with_sonnet(source_content: str, draft: dict) -> Optional[dict]:
 
 
 # =====================================================================
+# RELIABILITY NORMALIZER — Defensive guard before validate_mai1
+# =====================================================================
+
+def _normalize_reliability(mai1: Optional[dict]) -> None:
+    """
+    Ensure reliability_score is a valid float in [0, 1].
+    Mutates in-place. No-op if mai1 is None.
+    We override the value in translate() anyway; this just prevents
+    validate_mai1 from failing on a bad LLM-generated score.
+    """
+    if mai1 is None:
+        return
+    score = mai1.get("reliability_score")
+    if not isinstance(score, (int, float)) or not (0.0 <= float(score) <= 1.0):
+        mai1["reliability_score"] = 0.75
+
+
+# =====================================================================
 # VALIDATOR — Detects when Sonnet review is needed
 # =====================================================================
 
@@ -500,18 +597,28 @@ def translate(source_url: str) -> Tuple[Optional[dict], str]:
         readme = fetch_github_readme(source_url)
         if not readme:
             return None, "failed"
+
+        # Strategy 1: extract only critical sections → smaller, focused LLM input
+        readme_for_llm = extract_critical_sections(readme)
+        # Strategy 3: dynamic reliability from full README quality signals
+        reliability = calculate_initial_reliability(readme)
+
         prompt = PROMPT_GITHUB_README.replace("{source_url}", source_url).replace(
-            "{readme_content}", readme
+            "{readme_content}", readme_for_llm
         )
         draft = translate_with_haiku(prompt)
+        _normalize_reliability(draft)  # guard before validation
         is_valid, reason = validate_mai1(draft)
         if is_valid:
+            draft["reliability_score"] = reliability  # override with computed value
             return draft, "haiku"
-        # Escalate to Sonnet review
+        # Escalate to Sonnet — give full README for richer context
         print(f"[translator] Haiku draft failed validation ({reason}). Escalating to Sonnet.")
-        fixed = review_with_sonnet(readme, draft or {"source_url": source_url})
+        fixed = review_with_sonnet(readme[:6000], draft or {"source_url": source_url})
+        _normalize_reliability(fixed)
         is_valid, _ = validate_mai1(fixed)
         if is_valid:
+            fixed["reliability_score"] = reliability
             return fixed, "sonnet"
         return None, "failed"
 
@@ -520,17 +627,25 @@ def translate(source_url: str) -> Tuple[Optional[dict], str]:
         card = fetch_hf_model_card(source_url)
         if not card:
             return None, "failed"
+
+        # Strategy 3: dynamic reliability from card quality signals
+        reliability = calculate_initial_reliability(card)
+
         prompt = PROMPT_HF_MODEL_CARD.replace("{source_url}", source_url).replace(
             "{model_card}", card
         )
         draft = translate_with_haiku(prompt)
+        _normalize_reliability(draft)
         is_valid, reason = validate_mai1(draft)
         if is_valid:
+            draft["reliability_score"] = reliability
             return draft, "haiku"
         print(f"[translator] HF draft failed ({reason}). Escalating to Sonnet.")
         fixed = review_with_sonnet(card, draft or {"source_url": source_url})
+        _normalize_reliability(fixed)
         is_valid, _ = validate_mai1(fixed)
         if is_valid:
+            fixed["reliability_score"] = reliability
             return fixed, "sonnet"
         return None, "failed"
 
