@@ -147,12 +147,11 @@ def fetch_github_readme(repo_url: str) -> Optional[str]:
 
     # Primary: GitHub API readme endpoint (works without raw.githubusercontent.com)
     api_url = f"https://api.github.com/repos/{owner}/{repo}/readme"
-    try:
-        resp = httpx.get(api_url, headers=headers, timeout=10.0, follow_redirects=True)
-        if resp.status_code == 200 and len(resp.text) > 50:
-            return resp.text[:8000]
-    except Exception:
-        pass
+    resp = httpx.get(api_url, headers=headers, timeout=30.0, follow_redirects=True)
+    if resp.status_code == 200:
+        content = resp.text
+        if len(content) > 50:
+            return content[:8000]
 
     # Fallback: raw.githubusercontent.com
     raw_headers = {"Accept": "application/vnd.github.v3.raw"}
@@ -162,7 +161,7 @@ def fetch_github_readme(repo_url: str) -> Optional[str]:
         for filename in ["README.md", "README.rst", "README.txt", "readme.md"]:
             url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{filename}"
             try:
-                resp = httpx.get(url, headers=raw_headers, timeout=10.0, follow_redirects=True)
+                resp = httpx.get(url, headers=raw_headers, timeout=30.0, follow_redirects=True)
                 if resp.status_code == 200 and len(resp.text) > 50:
                     return resp.text[:8000]
             except Exception:

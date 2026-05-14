@@ -407,7 +407,7 @@ def admin_stats(
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "protocol": "MAI-1", "service": "aiaam.xyz", "v": "debug-8"}
+    return {"status": "ok", "protocol": "MAI-1", "service": "aiaam.xyz", "v": "debug-9"}
 
 
 @app.get("/api/v1/test-translate")
