@@ -264,6 +264,59 @@ body { font-family: var(--font); background: var(--bg); color: var(--text1); fon
   </div>
 </div>
 
+<!-- ── Visitor Intelligence Table ───────────────────────────── -->
+<div class="section">
+  <div class="section-header">
+    <span class="section-title">Visitor Intelligence · Last 7 days</span>
+    <span style="font-size:12px;color:var(--text2)">Classified by User-Agent</span>
+  </div>
+  <div class="card">
+    <div class="card-body" style="padding:0;">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead>
+          <tr style="border-bottom:1px solid var(--border);background:var(--bg);">
+            <th style="text-align:left;padding:10px 20px;font-weight:600;color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;">Source</th>
+            <th style="text-align:left;padding:10px 12px;font-weight:600;color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;">Type</th>
+            <th style="text-align:left;padding:10px 12px;font-weight:600;color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;max-width:280px;">User-Agent sample</th>
+            <th style="text-align:right;padding:10px 20px;font-weight:600;color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;">Requests</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in visitor_table %}
+          {% set is_elite = row.agent_type == 'elite' %}
+          <tr style="border-bottom:1px solid var(--border);{% if is_elite %}background:rgba(0,122,255,.03);{% endif %}">
+            <td style="padding:10px 20px;font-weight:{% if is_elite %}700{% else %}500{% endif %};">
+              {% if is_elite %}
+              <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--blue);margin-right:7px;flex-shrink:0;vertical-align:middle;box-shadow:0 0 0 3px rgba(0,122,255,.2);"></span>
+              {% elif row.agent_type == 'human' %}
+              <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--green);margin-right:7px;vertical-align:middle;"></span>
+              {% else %}
+              <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--border);margin-right:7px;vertical-align:middle;"></span>
+              {% endif %}
+              {{ row.source }}
+            </td>
+            <td style="padding:10px 12px;">
+              {% if is_elite %}
+              <span style="background:rgba(0,122,255,.1);color:var(--blue);padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;">Elite AI</span>
+              {% elif row.agent_type == 'human' %}
+              <span style="background:rgba(52,199,89,.1);color:var(--green);padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;">Human</span>
+              {% else %}
+              <span style="background:var(--bg);color:var(--text3);padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;">Bot/Unknown</span>
+              {% endif %}
+            </td>
+            <td style="padding:10px 12px;color:var(--text2);font-size:11px;font-family:monospace;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ row.ua_sample }}</td>
+            <td style="padding:10px 20px;text-align:right;font-weight:700;font-size:15px;font-variant-numeric:tabular-nums;">{{ row.count }}</td>
+          </tr>
+          {% endfor %}
+          {% if not visitor_table %}
+          <tr><td colspan="4" style="padding:24px 20px;text-align:center;color:var(--text3);">No requests yet</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
 <!-- ── Health Grid ────────────────────────────────────────────── -->
 <div class="section">
   <div class="section-header">

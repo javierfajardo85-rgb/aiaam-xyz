@@ -742,24 +742,72 @@ def _build_dashboard_ctx(session: Session) -> dict:
     human_count   = agent_type_counts.get("human",   0)
     unknown_count = agent_type_counts.get("unknown", 0)
 
-    # Elite Adoption pie — re-parse UA only for elite requests to get granular breakdown
-    elite_ua_rows = session.exec(
-        select(RequestLog.user_agent, func.count(RequestLog.id).label("n"))
-        .where(RequestLog.timestamp >= s7d, RequestLog.agent_type == "elite")
-        .group_by(RequestLog.user_agent)
+    # All UA strings (7d) for the visitor table + elite pie
+    all_ua_rows = session.exec(
+        select(RequestLog.user_agent, RequestLog.agent_type, func.count(RequestLog.id).label("n"))
+        .where(RequestLog.timestamp >= s7d)
+        .group_by(RequestLog.user_agent, RequestLog.agent_type)
+        .order_by(func.count(RequestLog.id).desc())
+        .limit(100)
     ).all()
+
+    # Visitor intelligence table — group by named source
+    _SOURCE_MAP = [
+        ("Cursor",      re.compile(r"cursor",                    re.I)),
+        ("Claude",      re.compile(r"claude|anthropic|claudebot",re.I)),
+        ("Copilot",     re.compile(r"copilot|github-copilot",    re.I)),
+        ("GPT / OpenAI",re.compile(r"gptbot|chatgpt|openai",     re.I)),
+        ("Gemini",      re.compile(r"gemini|google-extended|bard",re.I)),
+        ("Perplexity",  re.compile(r"perplexity",                re.I)),
+        ("CCBot",       re.compile(r"ccbot",                     re.I)),
+        ("Bing",        re.compile(r"bingbot|msnbot",            re.I)),
+        ("Human — Chrome",  re.compile(r"chrome",               re.I)),
+        ("Human — Safari",  re.compile(r"safari",               re.I)),
+        ("Human — Firefox", re.compile(r"firefox",              re.I)),
+        ("curl / script",   re.compile(r"curl",                 re.I)),
+    ]
+
+    source_counts: dict = defaultdict(int)
+    source_samples: dict = {}
+    source_type: dict   = {}
+    for ua, atype, n in all_ua_rows:
+        label = "Other bot"
+        for name, pat in _SOURCE_MAP:
+            if pat.search(ua):
+                label = name
+                break
+        source_counts[label]  += n
+        if label not in source_samples:
+            source_samples[label] = ua[:80]
+            source_type[label]    = atype
+
+    visitor_table = sorted(
+        [
+            {
+                "source":    src,
+                "count":     cnt,
+                "agent_type": source_type.get(src, "unknown"),
+                "ua_sample": source_samples.get(src, ""),
+            }
+            for src, cnt in source_counts.items()
+        ],
+        key=lambda x: x["count"],
+        reverse=True,
+    )
+
+    # Elite Adoption pie — aggregate by named source for elite agent_type only
     elite_buckets: dict = defaultdict(int)
-    for ua, n in elite_ua_rows:
-        elite_buckets[_classify_ua_for_dashboard(ua)] += n
-    # If no granular breakdown yet, show the totals by category
+    for row in visitor_table:
+        if row["agent_type"] == "elite":
+            elite_buckets[row["source"]] += row["count"]
     if not elite_buckets and elite_count > 0:
         elite_buckets["Elite AI"] = elite_count
     elite_adoption = dict(elite_buckets) if elite_buckets else {"No elite agents yet": 1}
 
     # LLM Battleground — all agent types including human (shows full picture)
     llm_bg = {
-        "Elite AI":  elite_count,
-        "Human":     human_count,
+        "Elite AI":    elite_count,
+        "Human":       human_count,
         "Unknown/Bot": unknown_count,
     }
 
@@ -840,6 +888,7 @@ def _build_dashboard_ctx(session: Session) -> dict:
         "elite_adoption_json": json.dumps(elite_adoption),
         "llm_bg_json":       json.dumps(llm_bg),
         "health_grid":       health_grid,
+        "visitor_table":     visitor_table,
         "agent_briefing":    agent_briefing,
         "monetizable":       monetizable,
         "aff_clicks_7d":     aff_clicks,
