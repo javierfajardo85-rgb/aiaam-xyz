@@ -142,8 +142,9 @@ def search_tools(
     Max 10 results per query.
     """
     # Excluye herramientas que fallaron verificación Docker (verified=False)
-    # verified=None (pendiente) o verified=True son visibles
+    # o que el tax_analyst marcó como dead (status="dead")
     not_failed = Tool.verified.is_not(False)
+    not_dead = Tool.status.is_not("dead")
 
     if q and q.strip():
         pattern = f"%{q.strip().lower()}%"
@@ -151,6 +152,7 @@ def search_tools(
             select(Tool)
             .where(
                 not_failed,
+                not_dead,
                 or_(
                     Tool.aid.ilike(pattern),
                     Tool.source_platform.ilike(pattern),
@@ -165,7 +167,7 @@ def search_tools(
         )
     else:
         q = ""
-        stmt = select(Tool).where(not_failed).order_by(Tool.reliability_score.desc()).limit(10)
+        stmt = select(Tool).where(not_failed, not_dead).order_by(Tool.reliability_score.desc()).limit(10)
 
     tools = session.exec(stmt).all()
     results = []

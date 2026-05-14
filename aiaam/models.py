@@ -46,6 +46,7 @@ class Tool(SQLModel, table=True):
     suggested_workflow: Optional[dict] = Field(        # set by semantic_oracle, cached 24h
         default=None, sa_column=Column(JSON)
     )
+    status: Optional[str] = Field(default=None)        # None|active|degraded|dead — set by tax_analyst
 
 
 # =====================================================================
@@ -141,6 +142,7 @@ def tool_to_mai1(tool: Tool, include_action: bool = True) -> dict:
         "trust": {
             "reliability_score": tool.reliability_score,
             "latency_ms": tool.latency_ms,
+            "status": tool.status or "active",
         },
     }
     if include_action:
