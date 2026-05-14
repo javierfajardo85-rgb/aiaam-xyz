@@ -407,7 +407,31 @@ def admin_stats(
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "protocol": "MAI-1", "service": "aiaam.xyz", "v": "debug-5"}
+    return {"status": "ok", "protocol": "MAI-1", "service": "aiaam.xyz", "v": "debug-6"}
+
+
+@app.get("/api/v1/test-llm")
+def test_llm(
+    x_admin_secret: Optional[str] = Header(default=None, alias="X-Admin-Secret"),
+):
+    """Admin-only: test Anthropic API connectivity and key validity."""
+    if x_admin_secret != ADMIN_SECRET:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    import os as _os
+    from anthropic import Anthropic as _Ant
+    key = _os.getenv("ANTHROPIC_API_KEY", "")
+    if not key:
+        return {"error": "ANTHROPIC_API_KEY not set", "key_prefix": None}
+    try:
+        _client = _Ant(api_key=key)
+        _resp = _client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=10,
+            messages=[{"role": "user", "content": "Reply with: ok"}],
+        )
+        return {"status": "ok", "key_prefix": key[:12] + "...", "reply": _resp.content[0].text}
+    except Exception as _e:
+        return {"error": f"{type(_e).__name__}: {_e}", "key_prefix": key[:12] + "..."}
 
 
 if __name__ == "__main__":
