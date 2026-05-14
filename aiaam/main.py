@@ -407,7 +407,7 @@ def admin_stats(
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "protocol": "MAI-1", "service": "aiaam.xyz", "v": "debug-7"}
+    return {"status": "ok", "protocol": "MAI-1", "service": "aiaam.xyz", "v": "debug-8"}
 
 
 @app.get("/api/v1/test-translate")
@@ -426,6 +426,20 @@ def test_translate(
     url = "https://github.com/yt-dlp/yt-dlp"
     steps = {}
     try:
+        # Direct GitHub API test
+        import httpx as _hx2
+        try:
+            _gr = _hx2.get(
+                "https://api.github.com/repos/yt-dlp/yt-dlp/readme",
+                headers={"Accept": "application/vnd.github.v3.raw"},
+                timeout=10.0, follow_redirects=True,
+            )
+            steps["github_api_status"] = _gr.status_code
+            steps["github_response_len"] = len(_gr.text)
+            steps["github_response_preview"] = _gr.text[:200]
+        except Exception as _ge:
+            steps["github_api_error"] = f"{type(_ge).__name__}: {_ge}"
+
         readme = fetch_github_readme(url)
         steps["readme_len"] = len(readme) if readme else None
         if not readme:
