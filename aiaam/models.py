@@ -47,6 +47,8 @@ class Tool(SQLModel, table=True):
         default=None, sa_column=Column(JSON)
     )
     status: Optional[str] = Field(default=None)        # None|active|degraded|dead — set by tax_analyst
+    last_verified_at: Optional[datetime] = Field(default=None)   # last sandbox triple-check
+    health_score: Optional[float] = Field(default=None)          # avg of last 5 response_integrity_scores
 
 
 # =====================================================================
@@ -126,6 +128,25 @@ class InjectedRepo(SQLModel, table=True):
     license_spdx: str = Field(default="unknown")      # "MIT" | "Apache-2.0" | ...
     instructions_md: str                               # contenido generado
     injected_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+# =====================================================================
+# HEALTH CHECKS — Historial auditado de triple validación (B2)
+# =====================================================================
+
+class HealthCheck(SQLModel, table=True):
+    """Registro de cada triple-check ejecutado por sandbox_sanitizer."""
+    __tablename__ = "health_checks"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    aid: str = Field(index=True)                        # FK lógica → tools.aid
+    checked_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    schema_valid: Optional[bool] = Field(default=None)          # MAI-1 Pydantic check
+    url_reachable: Optional[bool] = Field(default=None)         # HEAD request a source_url
+    sandbox_success: Optional[bool] = Field(default=None)       # Docker install exit 0
+    latency_ms: Optional[int] = Field(default=None)             # tiempo Docker run
+    response_integrity_score: Optional[float] = Field(default=None)  # 0-1
+    error_detail: Optional[str] = Field(default=None)           # descripción del fallo
 
 
 def tool_to_mai1(tool: Tool, include_action: bool = True) -> dict:

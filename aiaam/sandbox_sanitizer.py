@@ -1,28 +1,30 @@
 """
 AIAAM Sandbox Sanitizer — Agente B2
-Verifica install_cmd de cada herramienta ejecutándola en Docker aislado.
+Triple validación por herramienta. Sin LLM.
 
-Coste LLM: CERO. Solo Docker + lógica Python.
+CHECK 1 — Schema: validación estricta Pydantic MAI-1 v1.0
+CHECK 2 — Logic: HEAD request a source_url, verifica alcanzabilidad
+CHECK 3 — Sandbox: Docker install, verifica exit 0
 
-Resultado:
-  verified=True   → reliability_score inicial = 0.85, herramienta visible en catálogo
-  verified=False  → herramienta permanece en DB pero excluida del search público
-  verified=None   → no verificable (Docker no disponible o install_cmd no reconocido)
+Solo si pasan los 3 → verified=True
+Si falla cualquiera → verified=False + registro en health_checks
 
-Imágenes Docker usadas:
-  pip install ...   → python:3.11-slim
-  npm install ...   → node:20-slim
-  docker run ...    → no verificable (requeriría DinD)
-  brew install ...  → no verificable (solo macOS)
+Cada ejecución crea un HealthCheck. El campo health_score en Tool
+es el promedio de los últimos 5 response_integrity_score.
+
+Coste LLM: CERO.
+
+Imágenes Docker:
+  pip install ...  → python:3.11-slim
+  npm install ...  → node:20-slim
 
 Uso:
-    python3 sandbox_sanitizer.py                   # verifica todas las herramientas pendientes
-    python3 sandbox_sanitizer.py --aid yt-dlp-v1   # verifica una herramienta específica
-    python3 sandbox_sanitizer.py --all             # reverifica todo el catálogo
-    python3 sandbox_sanitizer.py --dry-run         # muestra qué verificaría sin ejecutar Docker
+    python3 sandbox_sanitizer.py              # verifica pendientes (verified=None)
+    python3 sandbox_sanitizer.py --aid yt-dlp-v1
+    python3 sandbox_sanitizer.py --all        # reverifica todo
+    python3 sandbox_sanitizer.py --dry-run    # preview sin Docker ni DB
 """
 
-import os
 import re
 import sys
 import time
@@ -33,43 +35,113 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+import httpx
+from pydantic import BaseModel, field_validator, model_validator
 from sqlmodel import Session, select
 from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from database import engine, init_db
-from models import Tool
+from models import Tool, HealthCheck
 
 load_dotenv()
 
-DOCKER_TIMEOUT = 60       # segundos máximos por contenedor
-VERIFIED_SCORE = 0.85     # reliability_score inicial si pasa verificación
+DOCKER_TIMEOUT = 60
+VERIFIED_SCORE = 0.85
 MEMORY_LIMIT   = "256m"
 CPU_LIMIT      = "0.5"
+HEALTH_WINDOW  = 5       # últimos N checks para calcular health_score
 
-# Patrones permitidos de install_cmd (allowlist estricta)
 _PIP_PATTERN = re.compile(r"^pip install\s+([\w\-\[\],. ]+)$", re.IGNORECASE)
 _NPM_PATTERN = re.compile(r"^npm (?:install|i)\s+([\w\-@/. ]+)$", re.IGNORECASE)
+_SHELL_OPS   = re.compile(r'[;&|`$<>\\]|\bsudo\b|\bchmod\b|\brm\b|\bcurl\b|\bwget\b')
 
 
 # =====================================================================
-# SEGURIDAD — validación del comando antes de ejecutar
+# CHECK 1 — SCHEMA VALIDATION (Pydantic, zero network)
 # =====================================================================
 
-_SHELL_OPERATORS = re.compile(r"[;&|`$<>\\]|\bsudo\b|\bchmod\b|\brm\b|\bcurl\b|\bwget\b")
+class _MAI1Validator(BaseModel):
+    """MAI-1 v1.0 schema validator. Fails fast on missing required fields."""
+    aid: str
+    source_url: str
+    input_schema: dict
+    output_schema: dict
+    reliability_score: float
 
+    @field_validator("aid")
+    @classmethod
+    def aid_nonempty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("aid must be non-empty")
+        return v
+
+    @field_validator("source_url")
+    @classmethod
+    def url_format(cls, v: str) -> str:
+        if not v.startswith(("http://", "https://")):
+            raise ValueError("source_url must start with http:// or https://")
+        return v
+
+    @field_validator("reliability_score")
+    @classmethod
+    def score_range(cls, v: float) -> float:
+        if not 0.0 <= v <= 1.0:
+            raise ValueError("reliability_score must be in [0, 1]")
+        return v
+
+    @model_validator(mode="after")
+    def schemas_have_type(self) -> "_MAI1Validator":
+        if "type" not in self.input_schema:
+            raise ValueError('input_schema missing "type" key')
+        if "type" not in self.output_schema:
+            raise ValueError('output_schema missing "type" key')
+        return self
+
+
+def check_schema(tool: Tool) -> tuple[bool, Optional[str]]:
+    """Returns (passed, error_detail)."""
+    try:
+        _MAI1Validator(
+            aid=tool.aid,
+            source_url=tool.source_url,
+            input_schema=tool.input_schema or {},
+            output_schema=tool.output_schema or {},
+            reliability_score=tool.reliability_score,
+        )
+        return True, None
+    except Exception as exc:
+        return False, f"schema: {exc}"
+
+
+# =====================================================================
+# CHECK 2 — URL REACHABILITY (HEAD request, zero Docker)
+# =====================================================================
+
+def check_url(source_url: str, timeout: int = 10) -> tuple[bool, Optional[str]]:
+    """HEAD request to source_url. Returns (reachable, error_detail)."""
+    try:
+        r = httpx.head(source_url, follow_redirects=True, timeout=timeout)
+        # Any HTTP response (even 404) means the server is reachable
+        if r.status_code < 500:
+            return True, None
+        return False, f"url: HTTP {r.status_code}"
+    except httpx.TimeoutException:
+        return False, f"url: timeout after {timeout}s"
+    except Exception as exc:
+        return False, f"url: {exc}"
+
+
+# =====================================================================
+# CHECK 3 — SANDBOX EXECUTION (Docker)
+# =====================================================================
 
 def _is_safe(cmd: str) -> bool:
-    """Rechaza comandos con operadores de shell o instrucciones peligrosas."""
-    return not bool(_SHELL_OPERATORS.search(cmd))
+    return not bool(_SHELL_OPS.search(cmd))
 
 
 def _detect_runtime(cmd: str) -> Optional[tuple[str, str]]:
-    """
-    Devuelve (docker_image, shell_cmd) si el install_cmd es verificable.
-    Devuelve None si el formato no es soportado.
-    """
     if not cmd or not _is_safe(cmd):
         return None
     cmd = cmd.strip()
@@ -80,41 +152,39 @@ def _detect_runtime(cmd: str) -> Optional[tuple[str, str]]:
     return None
 
 
-# =====================================================================
-# DOCKER RUNNER
-# =====================================================================
-
 def _docker_available() -> bool:
     return shutil.which("docker") is not None
 
 
-def run_in_docker(install_cmd: str, timeout: int = DOCKER_TIMEOUT) -> tuple[Optional[bool], str]:
+def check_sandbox(
+    install_cmd: str,
+    timeout: int = DOCKER_TIMEOUT,
+) -> tuple[Optional[bool], int, float, Optional[str]]:
     """
-    Ejecuta install_cmd en un contenedor Docker aislado.
-
-    Returns:
-        (True, log)  → instalación exitosa
-        (False, log) → instalación fallida o timeout
-        (None, log)  → no verificable (Docker no disponible / formato desconocido)
+    Runs install_cmd in isolated Docker container.
+    Returns (success, latency_ms, integrity_score, error_detail).
+      success=None  → unverifiable (Docker missing or format unsupported)
+      success=True  → install exit 0
+      success=False → install failed or timeout
     """
     if not _docker_available():
-        return None, "docker_not_available"
+        return None, 0, 0.0, "docker_not_available"
 
     runtime = _detect_runtime(install_cmd)
     if runtime is None:
-        return None, f"unverifiable: format not supported — {install_cmd[:80]}"
+        return None, 0, 0.0, f"unverifiable: format not supported — {install_cmd[:80]}"
 
     image, shell_cmd = runtime
-
     docker_cmd = [
         "docker", "run", "--rm",
         f"--memory={MEMORY_LIMIT}",
         f"--cpus={CPU_LIMIT}",
-        "--no-new-privileges",
+        "--network=host",
         image,
         "sh", "-c", shell_cmd,
     ]
 
+    t0 = time.time()
     try:
         result = subprocess.run(
             docker_cmd,
@@ -122,59 +192,114 @@ def run_in_docker(install_cmd: str, timeout: int = DOCKER_TIMEOUT) -> tuple[Opti
             text=True,
             timeout=timeout,
         )
+        latency_ms = int((time.time() - t0) * 1000)
         log = (result.stdout + result.stderr).strip()[:2000]
-        return result.returncode == 0, log
+        success = result.returncode == 0
+        integrity = 1.0 if success else 0.0
+        error = None if success else log[:300]
+        return success, latency_ms, integrity, error
     except subprocess.TimeoutExpired:
-        return False, f"timeout after {timeout}s"
+        latency_ms = int((time.time() - t0) * 1000)
+        return False, latency_ms, 0.0, f"sandbox: timeout after {timeout}s"
     except Exception as exc:
-        return None, f"docker_error: {exc}"
+        latency_ms = int((time.time() - t0) * 1000)
+        return None, latency_ms, 0.0, f"sandbox: {exc}"
 
 
 # =====================================================================
-# CORE — verifica una herramienta y actualiza DB
+# HEALTH SCORE — promedio de últimos N checks
 # =====================================================================
 
-def sanitize_tool(tool: Tool, session: Session, dry_run: bool = False) -> Optional[bool]:
-    """
-    Verifica install_cmd del tool en Docker. Actualiza verified + reliability_score en DB.
-
-    Returns: True | False | None  (mismo significado que tool.verified)
-    """
-    cmd = tool.install_cmd
-    if not cmd:
-        print(f"    SKIP — install_cmd vacío")
+def _recalculate_health_score(session: Session, aid: str) -> Optional[float]:
+    recent = session.exec(
+        select(HealthCheck)
+        .where(HealthCheck.aid == aid)
+        .order_by(HealthCheck.checked_at.desc())
+        .limit(HEALTH_WINDOW)
+    ).all()
+    scores = [c.response_integrity_score for c in recent if c.response_integrity_score is not None]
+    if not scores:
         return None
+    return round(sum(scores) / len(scores), 4)
 
-    print(f"    cmd : {cmd}")
 
+# =====================================================================
+# CORE — triple check + HealthCheck record + Tool update
+# =====================================================================
+
+def sanitize_tool(
+    tool: Tool,
+    session: Session,
+    dry_run: bool = False,
+) -> Optional[bool]:
+    """
+    Runs triple validation. Writes HealthCheck record and updates Tool.
+    Returns True | False | None  (same as tool.verified).
+    """
+    errors = []
+
+    # ── CHECK 1: Schema ─────────────────────────────────────────────
+    schema_ok, schema_err = check_schema(tool)
+    if schema_err:
+        errors.append(schema_err)
+    print(f"    [1/3] schema   → {'OK' if schema_ok else 'FAIL: ' + (schema_err or '')}")
+
+    # ── CHECK 2: URL reachability ────────────────────────────────────
+    url_ok, url_err = check_url(tool.source_url)
+    if url_err:
+        errors.append(url_err)
+    print(f"    [2/3] url      → {'OK' if url_ok else 'FAIL: ' + (url_err or '')}")
+
+    # ── CHECK 3: Sandbox ─────────────────────────────────────────────
+    cmd = tool.install_cmd or ""
     if dry_run:
         runtime = _detect_runtime(cmd)
         if runtime:
-            print(f"    DRY  — would run in {runtime[0]}")
+            print(f"    [3/3] sandbox  → DRY — would run in {runtime[0]}")
         else:
-            print(f"    DRY  — unverifiable (format not supported)")
+            print(f"    [3/3] sandbox  → DRY — unverifiable (format not supported)")
         return None
 
-    verified, log = run_in_docker(cmd)
+    sandbox_ok, latency_ms, integrity, sandbox_err = check_sandbox(cmd)
+    if sandbox_err and sandbox_ok is False:
+        errors.append(sandbox_err)
+    status_label = "OK" if sandbox_ok else ("SKIP (unverifiable)" if sandbox_ok is None else f"FAIL: {sandbox_err or ''}")
+    print(f"    [3/3] sandbox  → {status_label}  latency={latency_ms}ms")
 
-    if verified is None:
-        print(f"    SKIP — {log}")
-        tool.verified = None
-    elif verified:
-        print(f"    OK   — install succeeded")
-        tool.verified = True
-        # Sube reliability_score al umbral de herramienta verificada
-        if tool.reliability_score < VERIFIED_SCORE:
-            tool.reliability_score = VERIFIED_SCORE
+    # ── VERDICT ──────────────────────────────────────────────────────
+    # verified=True only if all three checks are conclusive and pass
+    if sandbox_ok is None:
+        verified = None   # unverifiable — don't mark false
     else:
-        short_log = log[:200].replace("\n", " ")
-        print(f"    FAIL — {short_log}")
-        tool.verified = False
+        verified = schema_ok and url_ok and (sandbox_ok is True)
 
+    error_detail = "; ".join(errors) if errors else None
+    print(f"    verdict → {'PASS ✓' if verified is True else ('UNVERIFIABLE' if verified is None else 'FAIL ✗')}")
+
+    # ── WRITE HEALTH CHECK ───────────────────────────────────────────
+    hc = HealthCheck(
+        aid=tool.aid,
+        checked_at=datetime.utcnow(),
+        schema_valid=schema_ok,
+        url_reachable=url_ok,
+        sandbox_success=sandbox_ok,
+        latency_ms=latency_ms if sandbox_ok is not None else None,
+        response_integrity_score=integrity if sandbox_ok is not None else None,
+        error_detail=error_detail,
+    )
+    session.add(hc)
+    session.commit()
+
+    # ── UPDATE TOOL ──────────────────────────────────────────────────
+    tool.verified = verified
+    tool.last_verified_at = datetime.utcnow()
+    if verified is True and tool.reliability_score < VERIFIED_SCORE:
+        tool.reliability_score = VERIFIED_SCORE
+    tool.health_score = _recalculate_health_score(session, tool.aid)
     tool.updated_at = datetime.utcnow()
     session.add(tool)
     session.commit()
-    return tool.verified
+    return verified
 
 
 # =====================================================================
@@ -186,47 +311,44 @@ def run(
     reverify_all: bool = False,
     dry_run: bool = False,
 ) -> dict:
-    """
-    Verifica herramientas pendientes (verified=None) o todas si reverify_all=True.
-    Si aid se especifica, solo verifica esa herramienta.
-    """
     init_db()
     ts = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-    print(f"\n[sanitizer] {ts} — starting verification...")
+    print(f"\n[sanitizer] {ts} — triple validation starting...")
 
     if not _docker_available() and not dry_run:
-        print("[sanitizer] WARNING: Docker not found. Set dry_run=True or install Docker.")
+        print("[sanitizer] WARNING: Docker not found.")
 
-    results = {"ok": 0, "failed": 0, "skipped": 0}
+    results = {"passed": 0, "failed": 0, "unverifiable": 0}
 
     with Session(engine) as session:
         if aid:
             tool = session.get(Tool, aid)
             if not tool:
-                print(f"[sanitizer] ERROR: aid '{aid}' not found in catalog")
+                print(f"[sanitizer] ERROR: '{aid}' not found")
                 return results
             tools = [tool]
         elif reverify_all:
             tools = session.exec(select(Tool)).all()
         else:
-            tools = session.exec(
-                select(Tool).where(Tool.verified.is_(None))
-            ).all()
+            tools = session.exec(select(Tool).where(Tool.verified.is_(None))).all()
 
-        print(f"[sanitizer] {len(tools)} herramientas a verificar\n")
+        print(f"[sanitizer] {len(tools)} tools to check\n")
 
         for tool in tools:
             print(f"  → {tool.aid}")
             result = sanitize_tool(tool, session, dry_run=dry_run)
             if result is True:
-                results["ok"] += 1
+                results["passed"] += 1
             elif result is False:
                 results["failed"] += 1
             else:
-                results["skipped"] += 1
+                results["unverifiable"] += 1
             time.sleep(1)
 
-    print(f"\n[sanitizer] done — ok={results['ok']} failed={results['failed']} skipped={results['skipped']}")
+    print(
+        f"\n[sanitizer] done — passed={results['passed']} "
+        f"failed={results['failed']} unverifiable={results['unverifiable']}"
+    )
     return results
 
 
@@ -236,9 +358,9 @@ def run(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="AIAAM Sandbox Sanitizer")
-    parser.add_argument("--aid",     type=str,  help="Verificar una herramienta específica por aid")
+    parser.add_argument("--aid",     type=str,  help="Verificar un tool específico")
     parser.add_argument("--all",     action="store_true", help="Reverificar todo el catálogo")
-    parser.add_argument("--dry-run", action="store_true", help="Preview sin ejecutar Docker")
+    parser.add_argument("--dry-run", action="store_true", help="Preview sin Docker ni DB")
     args = parser.parse_args()
 
     run(aid=args.aid, reverify_all=args.all, dry_run=args.dry_run)

@@ -51,6 +51,9 @@ def _migrate_columns():
         ("tools",           "verified",                "BOOLEAN"),
         ("tools",           "suggested_workflow",      "JSON"),
         ("tools",           "status",                  "VARCHAR"),
+        ("tools",           "last_verified_at",        "DATETIME"),
+        ("tools",           "health_score",            "FLOAT"),
+        # health_checks se crea completa vía create_all; no necesita ALTER TABLE
         ("tax_logs",        "validation_vote",         "VARCHAR"),
         ("tax_logs",        "validation_candidate_aid","VARCHAR"),
         ("tax_logs",        "referral_confirmed",      "BOOLEAN"),
