@@ -577,12 +577,15 @@ def validate_mai1(mai1: Optional[dict]) -> Tuple[bool, str]:
 # MAIN TRANSLATOR — Routes by source platform
 # =====================================================================
 
-def translate(source_url: str) -> Tuple[Optional[dict], str]:
+def translate(source_url: str, priority_high: bool = False) -> Tuple[Optional[dict], str]:
     """
     Translate a source URL to a MAI-1 JSON object.
 
     Returns: (mai1_dict, translator_used)
     translator_used: "haiku" | "sonnet" | "mapped" | "failed"
+
+    priority_high=True: salta Haiku, usa Sonnet directamente con README completo.
+    Reservado para repos detectados por sentinel_sniffer con foam_score alto.
     """
     domain = urlparse(source_url).netloc.lower()
 
@@ -606,21 +609,28 @@ def translate(source_url: str) -> Tuple[Optional[dict], str]:
         if not readme:
             return None, "failed"
 
-        # Strategy 1: extract only critical sections → smaller, focused LLM input
-        readme_for_llm = extract_critical_sections(readme)
-        # Strategy 3: dynamic reliability from full README quality signals
         reliability = calculate_initial_reliability(readme)
 
+        if priority_high:
+            # Sonnet directo con README completo — repos FOAM de alta prioridad
+            fixed = review_with_sonnet(readme[:6000], {"source_url": source_url})
+            _normalize_reliability(fixed)
+            is_valid, _ = validate_mai1(fixed)
+            if is_valid:
+                fixed["reliability_score"] = reliability
+                return fixed, "sonnet"
+            return None, "failed"
+
+        readme_for_llm = extract_critical_sections(readme)
         prompt = PROMPT_GITHUB_README.replace("{source_url}", source_url).replace(
             "{readme_content}", readme_for_llm
         )
         draft = translate_with_haiku(prompt)
-        _normalize_reliability(draft)  # guard before validation
+        _normalize_reliability(draft)
         is_valid, reason = validate_mai1(draft)
         if is_valid:
-            draft["reliability_score"] = reliability  # override with computed value
+            draft["reliability_score"] = reliability
             return draft, "haiku"
-        # Escalate to Sonnet — give full README for richer context
         print(f"[translator] Haiku draft failed validation ({reason}). Escalating to Sonnet.")
         fixed = review_with_sonnet(readme[:6000], draft or {"source_url": source_url})
         _normalize_reliability(fixed)
@@ -636,8 +646,16 @@ def translate(source_url: str) -> Tuple[Optional[dict], str]:
         if not card:
             return None, "failed"
 
-        # Strategy 3: dynamic reliability from card quality signals
         reliability = calculate_initial_reliability(card)
+
+        if priority_high:
+            fixed = review_with_sonnet(card, {"source_url": source_url})
+            _normalize_reliability(fixed)
+            is_valid, _ = validate_mai1(fixed)
+            if is_valid:
+                fixed["reliability_score"] = reliability
+                return fixed, "sonnet"
+            return None, "failed"
 
         prompt = PROMPT_HF_MODEL_CARD.replace("{source_url}", source_url).replace(
             "{model_card}", card
@@ -660,9 +678,9 @@ def translate(source_url: str) -> Tuple[Optional[dict], str]:
     return None, "failed"
 
 
-def translate_and_save(source_url: str, session) -> Optional[Tool]:
+def translate_and_save(source_url: str, session, priority_high: bool = False) -> Optional[Tool]:
     """Translate and persist to DB. Returns the Tool or None on failure."""
-    mai1, translator = translate(source_url)
+    mai1, translator = translate(source_url, priority_high=priority_high)
     if not mai1:
         return None
 
