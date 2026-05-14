@@ -407,7 +407,7 @@ def admin_stats(
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "protocol": "MAI-1", "service": "aiaam.xyz", "v": "debug-9"}
+    return {"status": "ok", "protocol": "MAI-1", "service": "aiaam.xyz", "v": "debug-10"}
 
 
 @app.get("/api/v1/test-translate")
@@ -418,43 +418,41 @@ def test_translate(
     if x_admin_secret != ADMIN_SECRET:
         raise HTTPException(status_code=403, detail="Forbidden")
     import traceback as _tb
+    import httpx as _hx2
     from translator import (
-        fetch_github_readme, extract_critical_sections,
-        calculate_initial_reliability, translate_with_haiku,
-        validate_mai1, PROMPT_GITHUB_README
+        extract_critical_sections, calculate_initial_reliability,
+        translate_with_haiku, validate_mai1, PROMPT_GITHUB_README, fetch_github_readme
     )
     url = "https://github.com/yt-dlp/yt-dlp"
     steps = {}
     try:
-        # Direct GitHub API test
-        import httpx as _hx2
-        try:
-            _gr = _hx2.get(
-                "https://api.github.com/repos/yt-dlp/yt-dlp/readme",
-                headers={"Accept": "application/vnd.github.v3.raw"},
-                timeout=10.0, follow_redirects=True,
-            )
-            steps["github_api_status"] = _gr.status_code
-            steps["github_response_len"] = len(_gr.text)
-            steps["github_response_preview"] = _gr.text[:200]
-        except Exception as _ge:
-            steps["github_api_error"] = f"{type(_ge).__name__}: {_ge}"
+        # Inline fetch — bypasses fetch_github_readme to isolate the issue
+        _gr = _hx2.get(
+            "https://api.github.com/repos/yt-dlp/yt-dlp/readme",
+            headers={"Accept": "application/vnd.github.v3.raw"},
+            timeout=30.0, follow_redirects=True,
+        )
+        steps["inline_status"] = _gr.status_code
+        readme = _gr.text if _gr.status_code == 200 and len(_gr.text) > 50 else None
+        steps["inline_readme_len"] = len(readme) if readme else None
 
-        readme = fetch_github_readme(url)
-        steps["readme_len"] = len(readme) if readme else None
+        # Also call fetch_github_readme for comparison
+        try:
+            fn_readme = fetch_github_readme(url)
+            steps["fn_readme_len"] = len(fn_readme) if fn_readme else None
+        except Exception as _fe:
+            steps["fn_readme_error"] = f"{type(_fe).__name__}: {_fe}"
+
         if not readme:
-            return {"step_failed": "fetch_github_readme", **steps}
+            return {"step_failed": "inline_fetch", **steps}
+
         sections = extract_critical_sections(readme)
         steps["sections_len"] = len(sections)
-        reliability = calculate_initial_reliability(readme)
-        steps["reliability"] = reliability
         prompt = PROMPT_GITHUB_README.replace("{source_url}", url).replace("{readme_content}", sections)
-        try:
-            draft = translate_with_haiku(prompt)
-            steps["draft"] = draft
-        except Exception as _e:
-            steps["haiku_error"] = f"{type(_e).__name__}: {_e}"
-            return {"step_failed": "translate_with_haiku", **steps}
+        draft = translate_with_haiku(prompt)
+        steps["draft_keys"] = list(draft.keys()) if draft else None
+        if not draft:
+            return {"step_failed": "haiku", **steps}
         is_valid, reason = validate_mai1(draft)
         steps["valid"] = is_valid
         steps["reason"] = reason
