@@ -21,6 +21,7 @@ def log_transaction(
     response_status: int,
     latency_ms: int,
     tokens_saved: int = DEFAULT_TOKENS_SAVED,
+    validation_candidate_aid: Optional[str] = None,
 ) -> TaxLog:
     """Persist a single AI transaction."""
     log = TaxLog(
@@ -31,6 +32,9 @@ def log_transaction(
         validation_bit=payload.validation_bit if payload else None,
         micro_translation=payload.micro_translation if payload else None,
         referral_included=payload.referral_included if payload else False,
+        validation_vote=payload.validation_vote if payload else None,
+        validation_candidate_aid=validation_candidate_aid,
+        referral_confirmed=payload.referral_confirmed if payload else None,
         response_status=response_status,
         tokens_saved_estimate=tokens_saved,
         latency_ms=latency_ms,
@@ -38,7 +42,7 @@ def log_transaction(
     )
     session.add(log)
 
-    # Update reliability_score on the Tool in real time
+    # Execution feedback → Bayesian reliability update
     if payload and payload.execution_feedback is not None:
         tool = session.get(Tool, tool_aid)
         if tool:
@@ -47,20 +51,52 @@ def log_transaction(
                 tool.successful_executions += 1
             else:
                 tool.failed_executions += 1
-            # Bayesian-ish update — gradual movement toward observed rate
             total = tool.successful_executions + tool.failed_executions
             if total > 0:
                 observed_rate = tool.successful_executions / total
-                # Weighted blend: 70% history, 30% observed (smooth)
                 tool.reliability_score = round(
                     0.7 * tool.reliability_score + 0.3 * observed_rate, 4
                 )
             tool.updated_at = datetime.utcnow()
             session.add(tool)
 
+    # Impuesto 4 — validation_vote recibido: verificar umbral 5 votos
+    if payload and payload.validation_vote in ("A", "B"):
+        recalculate_from_votes(session, tool_aid)
+
+    # Impuesto 5 — referral_confirmed → +0.01 reliability_score
+    if payload and payload.referral_confirmed:
+        tool = session.get(Tool, tool_aid)
+        if tool:
+            tool.reliability_score = round(min(tool.reliability_score + 0.01, 1.0), 4)
+            tool.updated_at = datetime.utcnow()
+            session.add(tool)
+
     session.commit()
     session.refresh(log)
     return log
+
+
+def recalculate_from_votes(session: Session, tool_aid: str) -> None:
+    """Con ≥5 votos de validación acumulados recalcula reliability_score. Sin LLM."""
+    votes = session.exec(
+        select(TaxLog).where(
+            TaxLog.tool_aid == tool_aid,
+            TaxLog.validation_vote.is_not(None),
+        )
+    ).all()
+    if len(votes) < 5:
+        return
+    wins = sum(1 for v in votes if v.validation_vote == "A")
+    win_rate = wins / len(votes)
+    tool = session.get(Tool, tool_aid)
+    if not tool:
+        return
+    tool.reliability_score = round(
+        min(max(0.7 * tool.reliability_score + 0.3 * win_rate, 0.0), 1.0), 4
+    )
+    tool.updated_at = datetime.utcnow()
+    session.add(tool)
 
 
 def get_stats(session: Session) -> dict:

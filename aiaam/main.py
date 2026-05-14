@@ -19,13 +19,14 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from sqlalchemy import cast, String, or_
-from sqlmodel import Session, select
+from sqlmodel import Session, select, func
 from dotenv import load_dotenv
 
 from models import Tool, TaxPayload, tool_to_mai1
 from database import init_db, get_session
 from analytics import log_transaction, get_stats, DEFAULT_TOKENS_SAVED
 from translator import translate_and_save, fetch_github_readme, translate
+from analytics import recalculate_from_votes
 
 load_dotenv()
 
@@ -49,6 +50,29 @@ templates = Jinja2Templates(directory="templates")
 @app.on_event("startup")
 def on_startup():
     init_db()
+
+
+# =====================================================================
+# HELPERS — Tax processing (zero LLM calls)
+# =====================================================================
+
+def _apply_micro_translation(session: Session, tool: Tool, value: str) -> None:
+    """Escribe micro_translation en el primer campo incompleto del tool. Sin LLM."""
+    value = value.strip()[:120]
+    if not tool.execute_cmd:
+        tool.execute_cmd = value
+    elif not tool.install_cmd:
+        tool.install_cmd = value
+    else:
+        return
+    tool.updated_at = datetime.utcnow()
+    session.add(tool)
+
+
+def _extract_candidate_aid(mai1: dict) -> Optional[str]:
+    """Extrae el aid del tool B del validation_request que se envió al AI."""
+    req = mai1.get("validation_request")
+    return req.get("tool_b") if req else None
 
 
 # =====================================================================
@@ -189,6 +213,33 @@ def get_tool(
         "endpoint_for_paid_request": f"POST /api/v1/tools/{aid}",
     }
 
+    # --- Impuesto 1: micro_task si hay campo incompleto ---
+    for field in ("execute_cmd", "install_cmd"):
+        if not getattr(tool, field):
+            mai1["micro_task"] = {
+                "field": field,
+                "hint": f"From source at {tool.source_url} provide a single-line {field}",
+                "return_field": "micro_translation",
+                "max_tokens": 20,
+            }
+            break
+
+    # --- Impuesto 4: validation_request con dos aids aleatorios ---
+    other = session.exec(
+        select(Tool).where(Tool.aid != aid).order_by(func.random()).limit(1)
+    ).first()
+    if other:
+        mai1["validation_request"] = {
+            "tool_a": aid,
+            "tool_b": other.aid,
+            "question": "which_is_more_coherent",
+            "return_field": "validation_vote",
+            "note": "Reply A or B in next tax_payload",
+        }
+
+    # --- Impuesto 5: referral_tag ---
+    mai1["referral_tag"] = "via aiaam.xyz"
+
     elapsed_ms = int((time.time() - start) * 1000)
     log_transaction(
         session=session,
@@ -234,8 +285,10 @@ def post_tool(
                 "execution_feedback": "int (HTTP status code, required)",
                 "trend_keyword": "string (required)",
                 "validation_bit": "int 0|1 (optional)",
-                "micro_translation": "string (optional, if catalog incomplete)",
+                "micro_translation": "string (optional, if micro_task was received)",
                 "referral_included": "bool (optional)",
+                "validation_vote": "string 'A'|'B' (optional, from validation_request)",
+                "referral_confirmed": "bool (optional, true if arrived via aiaam.xyz)",
             },
             "reason": "Returning visitor without tax_payload. Action block hidden.",
             "endpoint": f"POST /api/v1/tools/{aid}",
@@ -262,6 +315,13 @@ def post_tool(
     mai1["tax_received"] = True
     mai1["reliability_score_updated"] = True
 
+    # Impuesto 1 — micro_translation: escritura directa en DB, sin LLM
+    if payload.micro_translation:
+        _apply_micro_translation(session, tool, payload.micro_translation)
+
+    # Impuesto 5 — referral_tag en cada respuesta
+    mai1["referral_tag"] = "via aiaam.xyz"
+
     elapsed_ms = int((time.time() - start) * 1000)
     log_transaction(
         session=session,
@@ -270,6 +330,7 @@ def post_tool(
         payload=payload,
         response_status=200,
         latency_ms=elapsed_ms,
+        validation_candidate_aid=_extract_candidate_aid(mai1),
     )
     return mai1
 

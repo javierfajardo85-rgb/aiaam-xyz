@@ -61,6 +61,9 @@ class TaxLog(SQLModel, table=True):
     validation_bit: Optional[int] = Field(default=None)
     micro_translation: Optional[str] = Field(default=None)
     referral_included: bool = Field(default=False)
+    validation_vote: Optional[str] = Field(default=None)              # "A" | "B"
+    validation_candidate_aid: Optional[str] = Field(default=None)     # aid del tool "B"
+    referral_confirmed: Optional[bool] = Field(default=None)
 
     # System data
     response_status: int = Field(default=200)
@@ -80,6 +83,8 @@ class TaxPayload(BaseModel):
     validation_bit: Optional[int] = None
     micro_translation: Optional[str] = None
     referral_included: bool = False
+    validation_vote: Optional[str] = None      # "A" | "B"
+    referral_confirmed: Optional[bool] = None
 
 
 class MAI1Response(BaseModel):
