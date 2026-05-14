@@ -770,7 +770,7 @@ def _build_dashboard_ctx(session: Session) -> dict:
     pending_count   = total_tools - verified_count - failed_count
     req_24h         = session.exec(select(func.count(RequestLog.id)).where(RequestLog.timestamp >= s24h)).one() or 0
     req_7d          = session.exec(select(func.count(RequestLog.id)).where(RequestLog.timestamp >= s7d)).one() or 0
-    tokens_saved    = req_7d * 500
+    tokens_saved    = req_7d * 4800  # est: MAI-1 ~200 tokens vs README ~5000 tokens
 
     # Traffic timelines — fetch raw timestamps, aggregate in Python
     raw_ts = session.exec(
@@ -953,39 +953,41 @@ def _build_dashboard_ctx(session: Session) -> dict:
             "summary": log.summary if log else None,
         })
 
-    # Revenue tracker
-    monetizable = session.exec(select(func.count(Tool.aid)).where(Tool.monetizable == True)).one() or 0
-    aff_clicks  = session.exec(
-        select(func.count(RequestLog.id))
-        .where(RequestLog.timestamp >= s7d, RequestLog.path.startswith("/api/v1/tools/"))
+    # Affiliate pipeline — real counts only, zero fabrication
+    monetizable_count = session.exec(
+        select(func.count(Tool.aid)).where(Tool.monetizable == True)
     ).one() or 0
-    est_conv    = round(aff_clicks * 0.02)
-    est_rev     = est_conv * 10
+    confirmed_revenue = session.exec(
+        select(func.count(TaxLog.id)).where(TaxLog.referral_confirmed == True)
+    ).one() or 0
+    tax_count_7d = session.exec(
+        select(func.count(TaxLog.id)).where(TaxLog.timestamp >= s7d)
+    ).one() or 0
 
     return {
-        "now":               now.strftime("%Y-%m-%d %H:%M UTC"),
-        "total_tools":       total_tools,
-        "verified_count":    verified_count,
-        "failed_count":      failed_count,
-        "pending_count":     pending_count,
-        "req_24h":           req_24h,
-        "req_7d":            req_7d,
-        "tokens_saved_est":  f"{tokens_saved:,}",
-        "elite_count":       elite_count,
-        "human_count":       human_count,
-        "unknown_count":     unknown_count,
-        "traffic_7d":        json.dumps({"labels": list(daily.keys()),  "data": list(daily.values())}),
-        "traffic_24h":       json.dumps({"labels": list(hourly.keys()), "data": list(hourly.values())}),
-        "top_tools_json":    json.dumps(top_tools),
-        "elite_adoption_json": json.dumps(elite_adoption),
-        "llm_bg_json":       json.dumps(llm_bg),
-        "health_grid":       health_grid,
-        "visitor_table":     visitor_table,
-        "agent_briefing":    agent_briefing,
-        "monetizable":       monetizable,
-        "aff_clicks_7d":     aff_clicks,
-        "est_conv_7d":       est_conv,
-        "est_rev_7d":        est_rev,
+        "now":                  now.strftime("%Y-%m-%d %H:%M UTC"),
+        "total_tools":          total_tools,
+        "verified_count":       verified_count,
+        "failed_count":         failed_count,
+        "pending_count":        pending_count,
+        "req_24h":              req_24h,
+        "req_7d":               req_7d,
+        "tokens_saved_est":     f"~{tokens_saved:,}",
+        "tokens_saved_note":    f"4,800 tokens/req × {req_7d} requests (est.)",
+        "elite_count":          elite_count,
+        "human_count":          human_count,
+        "unknown_count":        unknown_count,
+        "traffic_7d":           json.dumps({"labels": list(daily.keys()),  "data": list(daily.values())}),
+        "traffic_24h":          json.dumps({"labels": list(hourly.keys()), "data": list(hourly.values())}),
+        "top_tools_json":       json.dumps(top_tools),
+        "elite_adoption_json":  json.dumps(elite_adoption),
+        "llm_bg_json":          json.dumps(llm_bg),
+        "health_grid":          health_grid,
+        "visitor_table":        visitor_table,
+        "agent_briefing":       agent_briefing,
+        "monetizable_count":    monetizable_count,
+        "confirmed_revenue":    confirmed_revenue,
+        "tax_count_7d":         tax_count_7d,
     }
 
 

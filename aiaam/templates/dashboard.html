@@ -213,14 +213,14 @@ body { font-family: var(--font); background: var(--bg); color: var(--text1); fon
     </div>
   </div>
   <div class="kpi-card">
-    <div class="kpi-label">Tokens Saved · 7 d</div>
+    <div class="kpi-label">Tokens Saved · 7 d <span style="font-size:10px;color:var(--text3);font-weight:400;">(est.)</span></div>
     <div class="kpi-value" style="color:var(--green)">{{ tokens_saved_est }}</div>
-    <div class="kpi-sub">est. 500 tokens / request</div>
+    <div class="kpi-sub">{{ tokens_saved_note }}</div>
   </div>
   <div class="kpi-card">
-    <div class="kpi-label">Est. Revenue · 7 d</div>
-    <div class="kpi-value" style="color:var(--purple)">${{ est_rev_7d }}</div>
-    <div class="kpi-sub">{{ est_conv_7d }} conv. @ 2% · $10 avg</div>
+    <div class="kpi-label">Tax Transactions · 7 d</div>
+    <div class="kpi-value" style="color:var(--blue)">{{ tax_count_7d }}</div>
+    <div class="kpi-sub">agents that paid feedback tax</div>
   </div>
 </div>
 
@@ -381,39 +381,34 @@ body { font-family: var(--font); background: var(--bg); color: var(--text1); fon
   </div>
 
   <div class="section" style="margin-bottom:0">
-    <div class="section-header"><span class="section-title">Revenue Tracker · 7 days</span></div>
+    <div class="section-header"><span class="section-title">Revenue — Confirmed Only</span></div>
     <div class="card" style="margin-bottom:16px;">
       <div class="rev-grid">
         <div class="rev-cell">
-          <div class="rev-label">Affiliate Clicks</div>
-          <div class="rev-value">{{ aff_clicks_7d }}</div>
-          <div class="rev-note">tool endpoint hits</div>
-        </div>
-        <div class="rev-cell">
-          <div class="rev-label">Conversions</div>
-          <div class="rev-value">{{ est_conv_7d }}</div>
-          <div class="rev-note">est. 2% rate</div>
-        </div>
-        <div class="rev-cell">
-          <div class="rev-label">Revenue</div>
-          <div class="rev-value" style="color:var(--green)">${{ est_rev_7d }}</div>
-          <div class="rev-note">$10 avg commission</div>
+          <div class="rev-label">Confirmed Commissions</div>
+          <div class="rev-value" style="color:{% if confirmed_revenue > 0 %}var(--green){% else %}var(--text2){% endif %}">{{ confirmed_revenue }}</div>
+          <div class="rev-note">referral_confirmed = true</div>
         </div>
         <div class="rev-cell">
           <div class="rev-label">Active Programs</div>
-          <div class="rev-value" style="color:var(--orange)">{{ monetizable }}</div>
-          <div class="rev-note">monetizable tools</div>
+          <div class="rev-value" style="color:{% if monetizable_count > 0 %}var(--green){% else %}var(--text2){% endif %}">{{ monetizable_count }}</div>
+          <div class="rev-note">monetizable tools in catalog</div>
+        </div>
+        <div class="rev-cell" style="grid-column:span 2;">
+          <div class="rev-label">Confirmed Revenue</div>
+          <div class="rev-value" style="color:var(--text2)">$0.00</div>
+          <div class="rev-note">No affiliate program active yet · all figures above are real DB counts</div>
         </div>
       </div>
     </div>
 
-    <div class="section-header"><span class="section-title" style="font-size:15px;">Affiliate Pipeline</span></div>
+    <div class="section-header"><span class="section-title" style="font-size:15px;">Affiliate Pipeline — Enrollment Status</span></div>
     <div class="card">
       <div class="card-body">
         {% set programs = [
-          ("Firecrawl", "firecrawl-v1", "Tier A — no traffic min"),
-          ("LangFuse",  "langfuse-python-v1", "Tier A — no traffic min"),
-          ("Qdrant",    "qdrant-v1", "Tier A — no traffic min"),
+          ("Firecrawl",  "firecrawl-v1",       "Contact pending"),
+          ("LangFuse",   "langfuse-python-v1",  "Contact pending"),
+          ("Qdrant",     "qdrant-v1",           "Contact pending"),
         ] %}
         <table style="width:100%;border-collapse:collapse;font-size:13px;">
           <thead>
@@ -427,14 +422,15 @@ body { font-family: var(--font); background: var(--bg); color: var(--text1); fon
             {% for name, aid, note in programs %}
             <tr style="border-bottom:1px solid var(--border);">
               <td style="padding:8px 0;font-weight:600;">{{ name }}</td>
-              <td style="padding:8px 0;color:var(--text2);">{{ aid }}</td>
+              <td style="padding:8px 0;color:var(--text2);font-family:monospace;font-size:12px;">{{ aid }}</td>
               <td style="padding:8px 0;text-align:right;">
-                <span style="background:#FFF3E0;color:var(--orange);padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;">Pending</span>
+                <span style="background:#F5F5F5;color:var(--text2);padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;">{{ note }}</span>
               </td>
             </tr>
             {% endfor %}
           </tbody>
         </table>
+        <p style="margin:12px 0 0;font-size:11px;color:var(--text3);">Revenue cells will populate automatically once <code>Tool.affiliate_tag</code> is set and <code>TaxLog.referral_confirmed = true</code>.</p>
       </div>
     </div>
   </div>
