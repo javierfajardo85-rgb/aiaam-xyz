@@ -175,6 +175,25 @@ class RequestLog(SQLModel, table=True):
 # AGENT LOGS — Registro de cada ejecución de agentes B1-B7
 # =====================================================================
 
+# =====================================================================
+# API KEYS — Model II SaaS
+# =====================================================================
+
+class ApiKey(SQLModel, table=True):
+    """API key for Model II SaaS tier (paid programmatic access)."""
+    __tablename__ = "api_keys"
+
+    key: str = Field(primary_key=True, index=True)  # e.g. "aik_live_xxxx"
+    owner: str                                        # email or name
+    plan: str = Field(default="free")                 # free | pro | enterprise
+    daily_limit: int = Field(default=100)             # requests per day
+    requests_today: int = Field(default=0)
+    total_requests: int = Field(default=0)
+    last_reset: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    active: bool = Field(default=True)
+
+
 class AgentLog(SQLModel, table=True):
     """Una ejecución de cualquier agente AIAAM (B1-B7)."""
     __tablename__ = "agent_logs"

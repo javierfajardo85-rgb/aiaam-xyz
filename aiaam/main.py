@@ -25,7 +25,8 @@ from sqlalchemy import cast, String, or_
 from sqlmodel import Session, select, func
 from dotenv import load_dotenv
 
-from models import Tool, TaxPayload, tool_to_mai1, InjectedRepo, RequestLog, TaxLog, HealthCheck, AgentLog
+import secrets as _secrets
+from models import Tool, TaxPayload, tool_to_mai1, InjectedRepo, RequestLog, TaxLog, HealthCheck, AgentLog, ApiKey
 from database import init_db, get_session, engine
 from analytics import log_transaction, get_stats, DEFAULT_TOKENS_SAVED, check_monetization_ratio
 from translator import translate_and_save, fetch_github_readme, translate
@@ -658,6 +659,86 @@ def intel(
         "tokens_saved_total": tokens_saved,
         "elite_agent_ratio": elite_ratio,
         "monetization": monetization,
+    }
+
+
+# =====================================================================
+# MODEL II SaaS — API keys + bulk endpoint + rate limiting
+# =====================================================================
+
+def _validate_api_key(
+    session: Session,
+    x_api_key: Optional[str],
+) -> ApiKey:
+    """Validates key, enforces daily rate limit, increments counter."""
+    if not x_api_key:
+        raise HTTPException(status_code=401, detail="X-Api-Key header required")
+    key = session.get(ApiKey, x_api_key)
+    if not key or not key.active:
+        raise HTTPException(status_code=401, detail="Invalid or inactive API key")
+    # Reset daily counter if it's a new day
+    now = datetime.utcnow()
+    if (now - key.last_reset).days >= 1:
+        key.requests_today = 0
+        key.last_reset = now
+    if key.requests_today >= key.daily_limit:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Daily limit reached ({key.daily_limit} requests). Resets at midnight UTC.",
+        )
+    key.requests_today += 1
+    key.total_requests += 1
+    session.add(key)
+    session.commit()
+    return key
+
+
+@app.post("/api/v1/keys", include_in_schema=False)
+def create_api_key(
+    owner: str,
+    plan: str = "free",
+    daily_limit: int = 100,
+    session: Session = Depends(get_session),
+    x_admin_secret: Optional[str] = Header(default=None, alias="X-Admin-Secret"),
+):
+    """Admin-only. Create a new API key."""
+    if x_admin_secret != ADMIN_SECRET:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    raw = f"aik_{'pro' if plan != 'free' else 'free'}_{_secrets.token_urlsafe(24)}"
+    key = ApiKey(key=raw, owner=owner, plan=plan, daily_limit=daily_limit)
+    session.add(key)
+    session.commit()
+    return {"key": raw, "owner": owner, "plan": plan, "daily_limit": daily_limit}
+
+
+@app.get("/api/v1/bulk")
+def bulk_tools(
+    aids: str = Query(description="Comma-separated list of AIDs (max 20)"),
+    session: Session = Depends(get_session),
+    x_api_key: Optional[str] = Header(default=None, alias="X-Api-Key"),
+):
+    """
+    Model II — Bulk MAI-1 fetch. Requires a valid X-Api-Key.
+    Returns up to 20 full MAI-1 contracts in one call.
+    Saves ~96,000 tokens vs fetching one-by-one.
+
+    Example:
+      GET /api/v1/bulk?aids=langchain-v1,langgraph-v1,crewai-v1
+      Header: X-Api-Key: aik_pro_xxxx
+    """
+    key = _validate_api_key(session, x_api_key)
+    aid_list = [a.strip() for a in aids.split(",") if a.strip()][:20]
+    results = []
+    for aid in aid_list:
+        tool = session.get(Tool, aid)
+        if tool and tool.verified:
+            results.append(tool_to_mai1(tool, include_action=True))
+    return {
+        "count": len(results),
+        "plan": key.plan,
+        "requests_today": key.requests_today,
+        "daily_limit": key.daily_limit,
+        "tools": results,
     }
 
 
