@@ -49,6 +49,7 @@ def _migrate_columns():
         # table,            column,                    sql_type
         ("tools",           "foam_score",              "INTEGER"),
         ("tools",           "verified",                "BOOLEAN"),
+        ("tools",           "suggested_workflow",      "JSON"),
         ("tax_logs",        "validation_vote",         "VARCHAR"),
         ("tax_logs",        "validation_candidate_aid","VARCHAR"),
         ("tax_logs",        "referral_confirmed",      "BOOLEAN"),

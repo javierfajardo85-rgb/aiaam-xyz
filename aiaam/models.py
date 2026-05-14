@@ -41,8 +41,11 @@ class Tool(SQLModel, table=True):
     successful_executions: int = Field(default=0)
     failed_executions: int = Field(default=0)
     translator_used: str = Field(default="haiku")  # haiku|sonnet|mapped
-    foam_score: Optional[int] = Field(default=None)   # 0-6, set by sentinel_sniffer
-    verified: Optional[bool] = Field(default=None)    # None=pending, True=OK, False=failed
+    foam_score: Optional[int] = Field(default=None)    # 0-6, set by sentinel_sniffer
+    verified: Optional[bool] = Field(default=None)     # None=pending, True=OK, False=failed
+    suggested_workflow: Optional[dict] = Field(        # set by semantic_oracle, cached 24h
+        default=None, sa_column=Column(JSON)
+    )
 
 
 # =====================================================================

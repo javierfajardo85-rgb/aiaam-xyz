@@ -29,3 +29,6 @@ pydantic==2.9.2
 # Markdown parsing (READMEs)
 beautifulsoup4==4.12.3
 markdown==3.7
+
+# Semantic Oracle (B4) — cosine similarity
+numpy==1.26.4
