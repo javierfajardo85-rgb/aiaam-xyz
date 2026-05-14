@@ -24,7 +24,7 @@ from dotenv import load_dotenv
 from models import Tool, TaxPayload, tool_to_mai1
 from database import init_db, get_session
 from analytics import log_transaction, get_stats, DEFAULT_TOKENS_SAVED
-from translator import translate_and_save
+from translator import translate_and_save, fetch_github_readme, translate
 
 load_dotenv()
 
@@ -300,6 +300,18 @@ def translate_url(
     source_url = body.url.strip()
     if not source_url.startswith("http"):
         raise HTTPException(status_code=400, detail="url must be a full http/https URL")
+
+    # Debug: step-by-step diagnosis
+    if "github.com" in source_url:
+        readme = fetch_github_readme(source_url)
+        if not readme:
+            raise HTTPException(status_code=422, detail="DEBUG: fetch_github_readme returned None")
+        try:
+            mai1, translator_used = translate(source_url)
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=f"DEBUG translate() exception: {type(exc).__name__}: {exc}")
+        if mai1 is None:
+            raise HTTPException(status_code=422, detail=f"DEBUG: translate() returned None (translator={translator_used}). README len={len(readme)}")
 
     try:
         tool = translate_and_save(source_url, session)
