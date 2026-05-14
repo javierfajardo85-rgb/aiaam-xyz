@@ -320,6 +320,55 @@ def translate_url(
 
 
 # =====================================================================
+# INGEST — Admin endpoint to save a pre-built MAI-1 dict to the DB
+# =====================================================================
+
+class IngestRequest(BaseModel):
+    aid: str
+    version: Optional[str] = None
+    input_schema: dict
+    output_schema: dict
+    reliability_score: float = 0.75
+    latency_ms: Optional[int] = None
+    source_url: str
+    install_cmd: Optional[str] = None
+    execute_cmd: Optional[str] = None
+    source_platform: str = "github"
+    translator_used: str = "haiku"
+
+
+@app.post("/api/v1/ingest")
+def ingest_tool(
+    body: IngestRequest,
+    session: Session = Depends(get_session),
+    x_admin_secret: Optional[str] = Header(default=None, alias="X-Admin-Secret"),
+):
+    """
+    Admin-only. Accept a pre-built MAI-1 object and persist it.
+    Used when the translator runs locally and pushes results here.
+    """
+    if x_admin_secret != ADMIN_SECRET:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    tool = Tool(
+        aid=body.aid,
+        version=body.version,
+        input_schema=body.input_schema,
+        output_schema=body.output_schema,
+        reliability_score=body.reliability_score,
+        latency_ms=body.latency_ms,
+        source_url=body.source_url,
+        install_cmd=body.install_cmd,
+        execute_cmd=body.execute_cmd,
+        source_platform=body.source_platform,
+        translator_used=body.translator_used,
+    )
+    session.merge(tool)
+    session.commit()
+    return {"status": "ok", "aid": tool.aid}
+
+
+# =====================================================================
 # ADMIN STATS — Protected telemetry endpoint
 # =====================================================================
 
