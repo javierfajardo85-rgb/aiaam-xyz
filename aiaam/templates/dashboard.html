@@ -362,13 +362,16 @@ body { font-family: var(--font); background: var(--bg); color: var(--text1); fon
               <div class="tl-top">
                 <span class="tl-agent">{{ ag.name }}</span>
                 <span class="tl-code">{{ ag.code }}</span>
-                {% if ag.count > 0 %}
+                {% if ag.ran_at %}
                 <span class="tl-count">{{ ag.count }}<span class="tl-unit"> {{ ag.unit }}</span></span>
                 {% else %}
                 <span class="tl-count standby">Standby / Scanning</span>
                 {% endif %}
               </div>
-              <div class="tl-desc">{{ ag.desc }}</div>
+              <div class="tl-desc">{{ ag.desc }}
+                {% if ag.ran_at %}&nbsp;·&nbsp;<span style="color:var(--green);font-size:11px;">ran {{ ag.ran_at }}{% if ag.duration_s %} ({{ ag.duration_s }}s){% endif %}</span>{% endif %}
+                {% if ag.summary %}<br><span style="font-family:monospace;font-size:10px;color:var(--text3);">{{ ag.summary }}</span>{% endif %}
+              </div>
             </div>
           </div>
           {% endfor %}

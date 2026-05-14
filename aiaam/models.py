@@ -171,6 +171,25 @@ class RequestLog(SQLModel, table=True):
     timestamp: datetime = Field(default_factory=datetime.utcnow, index=True)
 
 
+# =====================================================================
+# AGENT LOGS — Registro de cada ejecución de agentes B1-B7
+# =====================================================================
+
+class AgentLog(SQLModel, table=True):
+    """Una ejecución de cualquier agente AIAAM (B1-B7)."""
+    __tablename__ = "agent_logs"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    agent_code: str = Field(index=True)       # "B1" … "B7"
+    agent_name: str                            # "Sentinel", "Sanitizer" …
+    run_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    items_processed: int = Field(default=0)   # repos scanned, tools checked …
+    items_new: int = Field(default=0)         # repos added, PRs submitted …
+    items_failed: int = Field(default=0)
+    duration_s: Optional[int] = Field(default=None)
+    summary: Optional[str] = Field(default=None)  # JSON-serialisable string
+
+
 def tool_to_mai1(tool: Tool, include_action: bool = True) -> dict:
     """Convert DB Tool to MAI-1 response dict."""
     response = {

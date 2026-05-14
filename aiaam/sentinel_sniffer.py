@@ -36,7 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from database import engine, init_db
 from models import Tool
 from translator import translate_and_save
-from analytics import check_monetization_ratio
+from analytics import check_monetization_ratio, log_agent_run
 
 load_dotenv()
 
@@ -172,6 +172,7 @@ def run(dry_run: bool = False) -> list[dict]:
     """Single pass del sniffer. Devuelve lista de repos procesados."""
     init_db()
     results = []
+    _t0 = time.time()
     ts = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
     print(f"\n[sentinel] {ts} — scanning GitHub for FOAM candidates...")
 
@@ -223,7 +224,16 @@ def run(dry_run: bool = False) -> list[dict]:
             time.sleep(2)  # courtesy pause entre traducciones
 
     translated = sum(1 for r in results if "aid" in r)
+    failed     = sum(1 for r in results if r.get("action") in ("error", "failed"))
     print(f"[sentinel] done — {translated} repos añadidos al catálogo.")
+    if not dry_run:
+        log_agent_run(
+            agent_code="B1", agent_name="Sentinel",
+            items_processed=len(results),
+            items_new=translated, items_failed=failed,
+            duration_s=int(time.time() - _t0),
+            summary=f"foam_candidates={len(results)} translated={translated}",
+        )
     return results
 
 

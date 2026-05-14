@@ -48,6 +48,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from database import engine, init_db
 from models import Tool, InjectedRepo
+from analytics import log_agent_run
 
 load_dotenv()
 
@@ -230,7 +231,9 @@ def run(
     dry_run: bool = False,
     force: bool = False,
 ) -> dict:
+    import time as _time
     init_db()
+    _t0 = _time.time()
     ts = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
     print(f"\n[injector] {ts} — generating AGENTS.md sections...")
 
@@ -260,6 +263,14 @@ def run(
             time.sleep(0.5)  # cortesía con GitHub API
 
     print(f"\n[injector] done — injected={results['injected']} skipped={results['skipped']}")
+    if not dry_run:
+        log_agent_run(
+            agent_code="B3", agent_name="Context Injector",
+            items_processed=results["injected"] + results["skipped"],
+            items_new=results["injected"], items_failed=0,
+            duration_s=int(_time.time() - _t0),
+            summary=f"injected={results['injected']} skipped={results['skipped']}",
+        )
     return results
 
 

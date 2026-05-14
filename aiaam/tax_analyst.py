@@ -32,6 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from database import engine, init_db
 from models import Tool, TaxLog
+from analytics import log_agent_run
 
 
 ERROR_THRESHOLD   = 3     # errores en 24 h que disparan penalización
@@ -110,6 +111,7 @@ def run(
     """
     Analiza todos los tools (o uno solo si aid está especificado).
     """
+    _t0 = time.time()
     init_db()
     ts = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
     mode = "DRY-RUN" if dry_run else "LIVE"
@@ -156,6 +158,14 @@ def run(
         f"degraded={summary['degraded']} dead={summary['dead']} "
         f"unchanged={summary['unchanged']}"
     )
+    if not dry_run:
+        log_agent_run(
+            agent_code="B5", agent_name="Tax Analyst",
+            items_processed=summary["analysed"],
+            items_new=0, items_failed=summary["penalised"],
+            duration_s=int(time.time() - _t0),
+            summary=f"penalised={summary['penalised']} degraded={summary['degraded']} dead={summary['dead']}",
+        )
     return summary
 
 

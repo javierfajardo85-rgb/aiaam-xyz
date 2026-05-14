@@ -25,7 +25,7 @@ from sqlalchemy import cast, String, or_
 from sqlmodel import Session, select, func
 from dotenv import load_dotenv
 
-from models import Tool, TaxPayload, tool_to_mai1, InjectedRepo, RequestLog, TaxLog, HealthCheck
+from models import Tool, TaxPayload, tool_to_mai1, InjectedRepo, RequestLog, TaxLog, HealthCheck, AgentLog
 from database import init_db, get_session, engine
 from analytics import log_transaction, get_stats, DEFAULT_TOKENS_SAVED, check_monetization_ratio
 from translator import translate_and_save, fetch_github_readme, translate
@@ -838,28 +838,39 @@ def _build_dashboard_ctx(session: Session) -> dict:
             "platform":   t.source_platform,
         })
 
-    # Agent briefing (derived from existing tables)
-    new_tools_24h  = session.exec(select(func.count(Tool.aid)).where(Tool.created_at >= s24h)).one() or 0
-    verified_24h   = session.exec(
-        select(func.count(Tool.aid))
-        .where(Tool.verified == True, Tool.last_verified_at >= s24h)
-    ).one() or 0
-    injected_24h   = session.exec(
-        select(func.count(InjectedRepo.id)).where(InjectedRepo.injected_at >= s24h)
-    ).one() or 0
-    tax_24h        = session.exec(
-        select(func.count(TaxLog.id)).where(TaxLog.timestamp >= s24h)
-    ).one() or 0
+    # Agent briefing — reads from agent_logs (written by each agent script)
+    _AGENT_META = {
+        "B1": ("Sentinel",         "repos scanned",        "New tools discovered via FOAM scoring"),
+        "B2": ("Sanitizer",        "tools verified",       "Triple-check: schema + URL + Docker"),
+        "B3": ("Context Injector", "AGENTS.md generated",  "MAI-1 sections for MIT/Apache repos"),
+        "B4": ("Library Ghost",    "snippets generated",   "LangChain/CrewAI issue monitoring"),
+        "B5": ("Tax Analyst",      "tools analysed",       "Reliability scores & status updates"),
+        "B6": ("Translator",       "tools translated",     "README → MAI-1 on-demand"),
+        "B7": ("Push Agent",       "tools synced",         "Local SQLite → Railway PostgreSQL"),
+    }
 
-    agent_briefing = [
-        {"name": "Sentinel",         "code": "B1", "count": new_tools_24h,  "unit": "repos scanned",       "desc": "New tools discovered via FOAM scoring"},
-        {"name": "Sanitizer",        "code": "B2", "count": verified_24h,   "unit": "tools verified",      "desc": "Triple-check: schema + URL + Docker"},
-        {"name": "Context Injector", "code": "B3", "count": injected_24h,   "unit": "PRs submitted",       "desc": "AGENTS.md injections to MIT/Apache repos"},
-        {"name": "Library Ghost",    "code": "B4", "count": 0,              "unit": "issues monitored",    "desc": "LangChain/CrewAI issue tracker"},
-        {"name": "Tax Analyst",      "code": "B5", "count": tax_24h,        "unit": "transactions logged", "desc": "AI tax receipts & reliability updates"},
-        {"name": "Translator",       "code": "B6", "count": 0,              "unit": "tools translated",    "desc": "README → MAI-1 on-demand"},
-        {"name": "Push Agent",       "code": "B7", "count": 0,              "unit": "catalog syncs",       "desc": "Local SQLite → Railway PostgreSQL"},
-    ]
+    recent_logs = session.exec(
+        select(AgentLog).where(AgentLog.run_at >= s24h).order_by(AgentLog.run_at.desc())
+    ).all()
+
+    # Keep only the latest run per agent code in the last 24h
+    latest_run: dict = {}
+    for log in recent_logs:
+        if log.agent_code not in latest_run:
+            latest_run[log.agent_code] = log
+
+    agent_briefing = []
+    for code, (name, unit, desc) in _AGENT_META.items():
+        log = latest_run.get(code)
+        agent_briefing.append({
+            "name":  name, "code": code,
+            "count": log.items_new if log else 0,
+            "processed": log.items_processed if log else 0,
+            "unit":  unit, "desc": desc,
+            "ran_at": log.run_at.strftime("%H:%M UTC") if log else None,
+            "duration_s": log.duration_s if log else None,
+            "summary": log.summary if log else None,
+        })
 
     # Revenue tracker
     monetizable = session.exec(select(func.count(Tool.aid)).where(Tool.monetizable == True)).one() or 0

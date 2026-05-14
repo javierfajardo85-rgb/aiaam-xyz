@@ -93,6 +93,17 @@ def run(dry_run: bool = False, only_verified: bool = False):
             time.sleep(0.15)  # gentle rate limit
 
     print(f"\n[push] done — ok={ok} fail={fail}")
+    if not dry_run:
+        try:
+            from analytics import log_agent_run
+            log_agent_run(
+                agent_code="B7", agent_name="Push Agent",
+                items_processed=ok + fail,
+                items_new=ok, items_failed=fail,
+                summary=f"synced={ok} failed={fail} target={PRODUCTION_URL}",
+            )
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":

@@ -35,6 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from database import engine, init_db
 from models import Tool
+from analytics import log_agent_run
 
 load_dotenv()
 
@@ -225,6 +226,8 @@ def run(
     since_hours: int = SINCE_HOURS_DEFAULT,
     dry_run: bool = False,
 ) -> dict:
+    import time as _time
+    _t0 = _time.time()
     init_db()
     ts = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
     mode = "DRY-RUN" if dry_run else "LIVE"
@@ -300,6 +303,14 @@ def run(
         f"relevant={summary['relevant']} snippets={summary['snippets']} "
         f"budget_skipped={summary['skipped_budget']}"
     )
+    if not dry_run:
+        log_agent_run(
+            agent_code="B4", agent_name="Library Ghost",
+            items_processed=summary["issues_scanned"],
+            items_new=summary["snippets"], items_failed=summary["skipped_budget"],
+            duration_s=int(_time.time() - _t0),
+            summary=f"relevant={summary['relevant']} snippets={summary['snippets']}",
+        )
     return summary
 
 

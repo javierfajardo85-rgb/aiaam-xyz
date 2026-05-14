@@ -365,6 +365,18 @@ def run(
         f"\n[sanitizer] done — passed={results['passed']} "
         f"failed={results['failed']} unverifiable={results['unverifiable']}"
     )
+    if not dry_run:
+        total = results["passed"] + results["failed"] + results["unverifiable"]
+        try:
+            from analytics import log_agent_run
+            log_agent_run(
+                agent_code="B2", agent_name="Sanitizer",
+                items_processed=total,
+                items_new=results["passed"], items_failed=results["failed"],
+                summary=f"passed={results['passed']} failed={results['failed']} unverifiable={results['unverifiable']}",
+            )
+        except Exception:
+            pass
     return results
 
 

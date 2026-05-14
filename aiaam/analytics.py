@@ -6,7 +6,8 @@ from datetime import datetime, timedelta
 from typing import Optional
 from sqlmodel import Session, select, func
 
-from models import TaxLog, Tool, TaxPayload
+import time
+from models import TaxLog, Tool, TaxPayload, AgentLog
 
 
 # Estimated tokens an AI saves by using AIAAM instead of reading source directly
@@ -130,6 +131,36 @@ def check_monetization_ratio(session: Session) -> dict:
             f"Add affiliate programmes for vector DBs, observability, or model APIs."
         )
     return result
+
+
+def log_agent_run(
+    agent_code: str,
+    agent_name: str,
+    items_processed: int = 0,
+    items_new: int = 0,
+    items_failed: int = 0,
+    duration_s: Optional[int] = None,
+    summary: Optional[str] = None,
+) -> None:
+    """
+    Persists one AgentLog row. Called at the end of every agent run().
+    Uses its own session so agents don't need to pass one in.
+    """
+    from database import engine
+    try:
+        with Session(engine) as session:
+            session.add(AgentLog(
+                agent_code=agent_code,
+                agent_name=agent_name,
+                items_processed=items_processed,
+                items_new=items_new,
+                items_failed=items_failed,
+                duration_s=duration_s,
+                summary=summary,
+            ))
+            session.commit()
+    except Exception as exc:
+        print(f"[agent_log] warning: could not save log — {exc}")
 
 
 def get_stats(session: Session) -> dict:
