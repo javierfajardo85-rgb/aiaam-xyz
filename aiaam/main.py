@@ -301,6 +301,20 @@ def translate_url(
     if not source_url.startswith("http"):
         raise HTTPException(status_code=400, detail="url must be a full http/https URL")
 
+    if "github.com" in source_url:
+        import httpx as _hx
+        from urllib.parse import urlparse as _up2
+        _p = _up2(source_url).path.strip("/").split("/")
+        _api = f"https://api.github.com/repos/{_p[0]}/{_p[1]}/readme"
+        try:
+            _r = _hx.get(_api, headers={"Accept": "application/vnd.github.v3.raw"}, timeout=10.0)
+            if _r.status_code != 200:
+                raise HTTPException(status_code=422, detail=f"GitHub API status={_r.status_code} X-RateLimit-Remaining={_r.headers.get('X-RateLimit-Remaining','?')}")
+        except HTTPException:
+            raise
+        except Exception as _e:
+            raise HTTPException(status_code=422, detail=f"GitHub API error: {type(_e).__name__}: {_e}")
+
     try:
         tool = translate_and_save(source_url, session)
     except Exception as exc:
@@ -393,7 +407,7 @@ def admin_stats(
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "protocol": "MAI-1", "service": "aiaam.xyz", "v": "debug-4"}
+    return {"status": "ok", "protocol": "MAI-1", "service": "aiaam.xyz", "v": "debug-5"}
 
 
 if __name__ == "__main__":
