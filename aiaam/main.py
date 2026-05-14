@@ -836,7 +836,11 @@ def admin_dashboard(
 ):
     if token != ADMIN_SECRET:
         raise HTTPException(status_code=404, detail="Not Found")
-    ctx = _build_dashboard_ctx(session)
+    try:
+        ctx = _build_dashboard_ctx(session)
+    except Exception as exc:
+        import traceback
+        return JSONResponse({"error": str(exc), "trace": traceback.format_exc()}, status_code=500)
     ctx["request"] = request
     response = templates.TemplateResponse("dashboard.html", ctx)
     response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive"
