@@ -1,12 +1,13 @@
 """
 AIAAM Main API
-The 6 endpoints that make AIAAM work:
+The 7 endpoints that make AIAAM work:
 
   GET  /                           → LLMO bait (HTML for crawlers)
   GET  /api/v1/tools               → Search catalog by keyword (?q=...)
   GET  /api/v1/tools/{aid}         → First visit, no history, returns full MAI-1
   POST /api/v1/tools/{aid}         → With tax_payload, validates and returns MAI-1
   POST /api/v1/translate           → Admin: translate a URL into MAI-1 and save to DB
+  POST /api/v1/ingest              → Admin: save a pre-built MAI-1 directly to DB
   GET  /admin/stats                → Telemetry dashboard (protected)
 """
 import os
@@ -301,20 +302,6 @@ def translate_url(
     if not source_url.startswith("http"):
         raise HTTPException(status_code=400, detail="url must be a full http/https URL")
 
-    if "github.com" in source_url:
-        import httpx as _hx
-        from urllib.parse import urlparse as _up2
-        _p = _up2(source_url).path.strip("/").split("/")
-        _api = f"https://api.github.com/repos/{_p[0]}/{_p[1]}/readme"
-        try:
-            _r = _hx.get(_api, headers={"Accept": "application/vnd.github.v3.raw"}, timeout=10.0)
-            if _r.status_code != 200:
-                raise HTTPException(status_code=422, detail=f"GitHub API status={_r.status_code} X-RateLimit-Remaining={_r.headers.get('X-RateLimit-Remaining','?')}")
-        except HTTPException:
-            raise
-        except Exception as _e:
-            raise HTTPException(status_code=422, detail=f"GitHub API error: {type(_e).__name__}: {_e}")
-
     try:
         tool = translate_and_save(source_url, session)
     except Exception as exc:
@@ -407,82 +394,7 @@ def admin_stats(
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "protocol": "MAI-1", "service": "aiaam.xyz", "v": "debug-11"}
-
-
-@app.get("/api/v1/test-translate")
-def test_translate(
-    x_admin_secret: Optional[str] = Header(default=None, alias="X-Admin-Secret"),
-):
-    """Admin-only: trace each step of translate() for yt-dlp."""
-    if x_admin_secret != ADMIN_SECRET:
-        raise HTTPException(status_code=403, detail="Forbidden")
-    import traceback as _tb
-    import httpx as _hx2
-    from translator import (
-        extract_critical_sections, calculate_initial_reliability,
-        translate_with_haiku, validate_mai1, PROMPT_GITHUB_README, fetch_github_readme
-    )
-    url = "https://github.com/yt-dlp/yt-dlp"
-    steps = {}
-    try:
-        # Inline fetch — bypasses fetch_github_readme to isolate the issue
-        _gr = _hx2.get(
-            "https://api.github.com/repos/yt-dlp/yt-dlp/readme",
-            headers={"Accept": "application/vnd.github.v3.raw"},
-            timeout=30.0, follow_redirects=True,
-        )
-        steps["inline_status"] = _gr.status_code
-        readme = _gr.text if _gr.status_code == 200 and len(_gr.text) > 50 else None
-        steps["inline_readme_len"] = len(readme) if readme else None
-
-        # Also call fetch_github_readme for comparison
-        try:
-            fn_readme = fetch_github_readme(url)
-            steps["fn_readme_len"] = len(fn_readme) if fn_readme else None
-        except Exception as _fe:
-            steps["fn_readme_error"] = f"{type(_fe).__name__}: {_fe}"
-
-        if not readme:
-            return {"step_failed": "inline_fetch", **steps}
-
-        sections = extract_critical_sections(readme)
-        steps["sections_len"] = len(sections)
-        prompt = PROMPT_GITHUB_README.replace("{source_url}", url).replace("{readme_content}", sections)
-        draft = translate_with_haiku(prompt)
-        steps["draft_keys"] = list(draft.keys()) if draft else None
-        if not draft:
-            return {"step_failed": "haiku", **steps}
-        is_valid, reason = validate_mai1(draft)
-        steps["valid"] = is_valid
-        steps["reason"] = reason
-        return {"step_failed": None, **steps}
-    except Exception as _e:
-        return {"step_failed": "unexpected", "error": _tb.format_exc()}
-
-
-@app.get("/api/v1/test-llm")
-def test_llm(
-    x_admin_secret: Optional[str] = Header(default=None, alias="X-Admin-Secret"),
-):
-    """Admin-only: test Anthropic API connectivity and key validity."""
-    if x_admin_secret != ADMIN_SECRET:
-        raise HTTPException(status_code=403, detail="Forbidden")
-    import os as _os
-    from anthropic import Anthropic as _Ant
-    key = _os.getenv("ANTHROPIC_API_KEY", "")
-    if not key:
-        return {"error": "ANTHROPIC_API_KEY not set", "key_prefix": None}
-    try:
-        _client = _Ant(api_key=key)
-        _resp = _client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=10,
-            messages=[{"role": "user", "content": "Reply with: ok"}],
-        )
-        return {"status": "ok", "key_prefix": key[:12] + "...", "reply": _resp.content[0].text}
-    except Exception as _e:
-        return {"error": f"{type(_e).__name__}: {_e}", "key_prefix": key[:12] + "..."}
+    return {"status": "ok", "protocol": "MAI-1", "service": "aiaam.xyz"}
 
 
 if __name__ == "__main__":
