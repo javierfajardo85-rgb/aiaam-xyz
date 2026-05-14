@@ -301,11 +301,15 @@ def translate_url(
     if not source_url.startswith("http"):
         raise HTTPException(status_code=400, detail="url must be a full http/https URL")
 
-    tool = translate_and_save(source_url, session)
+    try:
+        tool = translate_and_save(source_url, session)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Exception: {type(exc).__name__}: {exc}")
+
     if tool is None:
         raise HTTPException(
             status_code=422,
-            detail=f"Translation failed for: {source_url}. Check logs.",
+            detail=f"Translation returned None for: {source_url}. README fetch or LLM call failed.",
         )
 
     return {
