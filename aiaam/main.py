@@ -402,7 +402,7 @@ def admin_stats(
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "protocol": "MAI-1", "service": "aiaam.xyz"}
+    return {"status": "ok", "protocol": "MAI-1", "service": "aiaam.xyz", "v": "debug-3"}
 
 
 if __name__ == "__main__":
