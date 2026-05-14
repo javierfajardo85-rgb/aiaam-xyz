@@ -841,7 +841,8 @@ def admin_dashboard(
         ctx["request"] = request
         response = templates.TemplateResponse("dashboard.html", ctx)
         response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive"
-        response.headers.pop("server", None)
+        if "server" in response.headers:
+            del response.headers["server"]
         return response
     except Exception as exc:
         import traceback
