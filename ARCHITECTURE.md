@@ -21,15 +21,15 @@
 | HTTP audit middleware | ✅ | Registra cada petición en request_logs |
 | Bloque A — Tax system | ✅ | A1 micro-translation, A2 validation vote, A3 referral |
 
-### Implementado pero pendiente de activar
+### 🟢 GATE ABIERTO — ≥80 verified=True alcanzado (2026-05-14)
 
-| Componente | Estado | Condición de activación |
+| Componente | Estado | Notas |
 |---|---|---|
-| context_injector.py (B3) | ✅ Código listo | Activar cuando haya ≥80 tools verified=True |
-| library_ghost.py (B7) | ✅ Código listo | Activar cuando haya ≥80 tools verified=True |
+| context_injector.py (B3) | ✅ **ACTIVADO** | Gate 80 verified superado; lista para correr |
+| library_ghost.py (B7) | ✅ **ACTIVADO** | Gate 80 verified superado; revisión manual de snippets |
 | affiliate_tag / commercial block | ✅ Campo en DB | Introducir URLs cuando lleguen aprobaciones de afiliados |
 | monetizable flag | ✅ Campo en DB | Se activa via SQL tras aprobación de cada programa |
-| AGENTS.md injection en repos | ✅ Lógica lista | No auto-publicar; requiere PR manual o GitHub Actions futuro |
+| AGENTS.md injection en repos | ✅ Lógica lista | Requiere PR manual o GitHub Actions futuro |
 
 ### Implementado y corriendo bajo demanda (scripts locales)
 
@@ -43,10 +43,10 @@
 
 ### En cola — no implementado aún
 
-- Bloque C2: gap analysis contra 10 categorías prioritarias (pendiente de OK del founder)
-- Bloque C3: completar hasta 100 tools verificados (pendiente de C2)
 - GitHub Actions para correr agentes automáticamente en Railway
 - Endpoint público `/api/v1/health-report` (99.9% reliability data para buyers)
+- Modelo II SaaS: API keys + rate limiting + endpoint /api/v1/bulk
+- HN post: "I built an AI-to-AI marketplace where bots pay taxes in telemetry"
 
 ---
 
@@ -235,25 +235,22 @@ Datos reales a 2026-05-14.
 
 | Métrica | Valor actual | Umbral de exit |
 |---|---|---|
-| Tools en catálogo | 58 | 100 verified |
-| verified=True | 13 | 80 mínimo antes de marketing |
-| verified=False | 6 | — |
-| verified=None (pendiente) | 39 | — |
-| Plataformas cubiertas | GitHub (38), PyPI (10), HuggingFace (6), NPM (4) | — |
-| health_checks ejecutados | 0 (nuevo schema) | — |
-| Tokens ahorrados (acumulado) | 19.200 | — |
-| Tax logs | 4 | — |
-| Request logs | 5 | — |
-| Elite agent ratio | 0% | >20% para credibilidad |
-| Monetizable tools | 0 | ≥30% de verified |
-| Affiliate URLs activas | 0 | Tier A esta semana |
-| AGENTS.md inyectados | 0 | Activar con ≥80 verified |
+| Tools en catálogo | 107 | — |
+| verified=True | **81** | ✅ Gate superado (≥80) |
+| verified=False | 10 | Fallos reales de sandbox |
+| verified=None (pendiente) | 16 | Formato brew/conda/curl/uv — no verificables vía Docker |
+| health_checks ejecutados | 150+ | Auditoría completa en DB |
+| Tokens ahorrados (acumulado) | ~51.840 (81×640) | Estimado |
+| Elite agent ratio | 0% | Requiere indexación Copilot/Cursor |
+| Monetizable tools | 0 | ≥30% de verified — solicitar afiliados esta semana |
+| Affiliate URLs activas | 0 | Tier A: Firecrawl → LangFuse → Qdrant |
+| AGENTS.md inyectados | 0 | context_injector activado — listo para primera ronda |
 
 ### Lo que falta para el trigger de Hacker News
 
-1. **≥80 tools con verified=True** — actualmente 13; completar con Bloque C
+1. ~~**≥80 tools con verified=True**~~ ✅ **HECHO — 81 verificados**
 2. **≥1 affiliate URL activa** — solicitar Firecrawl/LangFuse esta semana
-3. **Elite agent ratio >10%** — requiere que Copilot/Cursor indexen el catálogo; activa context_injector cuando haya 80 verified
+3. **Elite agent ratio >10%** — activar context_injector sobre repos MIT/Apache-2.0 esta semana
 4. **Token savings >1M acumulado** — requiere tráfico real; se desbloquea con el punto 3
 
 ---
@@ -267,26 +264,25 @@ Datos reales a 2026-05-14.
 
 2. **Solicitar LangFuse y Qdrant** — mismo timing, Tier A.
 
-### Bloque C — código (en orden, esperar OK entre cada paso)
+### ✅ Bloque C — COMPLETADO
+
+| Paso | Tarea | Resultado |
+|---|---|---|
+| C1 | Auditoría sandbox — triple validación con HealthCheck table | ✅ Hecho |
+| C2 | Gap analysis: 10 categorías prioritarias | ✅ Hecho — 20 tools faltantes identificados |
+| C3 | Traducir 19 tools vía Haiku, inyectar asyncio-v1 | ✅ Hecho — 77 total |
+| C4 | 30 herramientas lightweight + fixes npm/mongo | ✅ Hecho — 107 total, **81 verified** |
+
+### Bloque D — inmediato
 
 | Paso | Tarea | Coste estimado |
 |---|---|---|
-| C1 | ~~Auditoría sandbox~~ | ✅ Hecho — 13 verified, 17 unverifiable |
-| C2 | Gap analysis: comparar 13 verified contra 10 categorías prioritarias | Zero LLM |
-| C3 | Traducir herramientas que faltan hasta llegar a 80 verified | Haiku Batch API; Sonnet solo si README >5000 tokens |
-| C3b | Correr sandbox_sanitizer.py --all sobre los nuevos | Zero LLM, Docker |
-
-**Estimación Bloque C:** ~67 herramientas nuevas × $0.0008 (Haiku) ≈ **$0.054** de coste LLM total.
-
-### Tras alcanzar 80 verified
-
-| Paso | Tarea | Coste estimado |
-|---|---|---|
-| D1 | Activar context_injector.py sobre el catálogo completo | Zero LLM |
-| D2 | Primera ronda de library_ghost.py (revisar snippets manualmente) | Max 10 × Sonnet ~$0.03/mes |
-| D3 | Implementar Modelo II SaaS (API keys + rate limiting) | Zero LLM |
-| D4 | Cron jobs en Railway para B1/B4/B5 automáticos | Zero LLM |
-| D5 | HN post: "I built an AI-to-AI marketplace where bots pay taxes in telemetry" | — |
+| D1 | **Solicitar afiliados Tier A** — Firecrawl, LangFuse, Qdrant (sin tráfico req.) | Zero |
+| D2 | **Primera ronda context_injector** — repos MIT/Apache-2.0 del catálogo | Zero LLM |
+| D3 | **Primera ronda library_ghost** — snippets LangChain/CrewAI/AutoGPT/Haystack | Max 10×Sonnet ~$0.03 |
+| D4 | Implementar Modelo II SaaS (API keys + rate limiting + /api/v1/bulk) | Zero LLM |
+| D5 | Cron jobs en Railway para B1/B4/B5 automáticos | Zero LLM |
+| D6 | HN post: "I built an AI-to-AI marketplace where bots pay taxes in telemetry" | — |
 
 ### Coste Anthropic estimado en estado estacionario
 
