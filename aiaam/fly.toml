@@ -1,0 +1,29 @@
+# Fly.io configuration for AIAAM
+# Deploy from: cd aiaam && fly deploy
+
+app = 'aiaam-xyz'
+primary_region = 'lhr'   # London — closest to UK/EU
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  TRANSLATOR_MODEL_PRIMARY  = "claude-haiku-4-5-20251001"
+  TRANSLATOR_MODEL_REVIEWER = "claude-sonnet-4-6"
+
+# Secrets (set via CLI, never committed):
+#   ANTHROPIC_API_KEY
+#   ADMIN_SECRET
+#   DATABASE_URL  ← injected automatically by: fly postgres attach
+
+[http_service]
+  internal_port       = 8080
+  force_https         = true
+  auto_stop_machines  = "stop"
+  auto_start_machines = true
+  min_machines_running = 1     # keeps 1 machine always alive → zero cold-starts for bots
+
+[[vm]]
+  memory   = "256mb"
+  cpu_kind = "shared"
+  cpus     = 1
