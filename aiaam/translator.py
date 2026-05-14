@@ -686,8 +686,12 @@ def translate_and_save(source_url: str, session) -> Optional[Tool]:
         source_platform=platform,
         translator_used=translator,
     )
-    session.merge(tool)
-    session.commit()
+    try:
+        session.merge(tool)
+        session.commit()
+    except Exception as exc:
+        session.rollback()
+        raise RuntimeError(f"DB save failed for aid={tool.aid}: {exc}") from exc
     return tool
 
 

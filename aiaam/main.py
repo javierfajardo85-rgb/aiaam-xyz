@@ -301,18 +301,6 @@ def translate_url(
     if not source_url.startswith("http"):
         raise HTTPException(status_code=400, detail="url must be a full http/https URL")
 
-    # Debug: step-by-step diagnosis
-    if "github.com" in source_url:
-        readme = fetch_github_readme(source_url)
-        if not readme:
-            raise HTTPException(status_code=422, detail="DEBUG: fetch_github_readme returned None")
-        try:
-            mai1, translator_used = translate(source_url)
-        except Exception as exc:
-            raise HTTPException(status_code=422, detail=f"DEBUG translate() exception: {type(exc).__name__}: {exc}")
-        if mai1 is None:
-            raise HTTPException(status_code=422, detail=f"DEBUG: translate() returned None (translator={translator_used}). README len={len(readme)}")
-
     try:
         tool = translate_and_save(source_url, session)
     except Exception as exc:
