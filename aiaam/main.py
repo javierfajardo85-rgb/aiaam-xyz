@@ -407,7 +407,46 @@ def admin_stats(
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "protocol": "MAI-1", "service": "aiaam.xyz", "v": "debug-6"}
+    return {"status": "ok", "protocol": "MAI-1", "service": "aiaam.xyz", "v": "debug-7"}
+
+
+@app.get("/api/v1/test-translate")
+def test_translate(
+    x_admin_secret: Optional[str] = Header(default=None, alias="X-Admin-Secret"),
+):
+    """Admin-only: trace each step of translate() for yt-dlp."""
+    if x_admin_secret != ADMIN_SECRET:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    import traceback as _tb
+    from translator import (
+        fetch_github_readme, extract_critical_sections,
+        calculate_initial_reliability, translate_with_haiku,
+        validate_mai1, PROMPT_GITHUB_README
+    )
+    url = "https://github.com/yt-dlp/yt-dlp"
+    steps = {}
+    try:
+        readme = fetch_github_readme(url)
+        steps["readme_len"] = len(readme) if readme else None
+        if not readme:
+            return {"step_failed": "fetch_github_readme", **steps}
+        sections = extract_critical_sections(readme)
+        steps["sections_len"] = len(sections)
+        reliability = calculate_initial_reliability(readme)
+        steps["reliability"] = reliability
+        prompt = PROMPT_GITHUB_README.replace("{source_url}", url).replace("{readme_content}", sections)
+        try:
+            draft = translate_with_haiku(prompt)
+            steps["draft"] = draft
+        except Exception as _e:
+            steps["haiku_error"] = f"{type(_e).__name__}: {_e}"
+            return {"step_failed": "translate_with_haiku", **steps}
+        is_valid, reason = validate_mai1(draft)
+        steps["valid"] = is_valid
+        steps["reason"] = reason
+        return {"step_failed": None, **steps}
+    except Exception as _e:
+        return {"step_failed": "unexpected", "error": _tb.format_exc()}
 
 
 @app.get("/api/v1/test-llm")
