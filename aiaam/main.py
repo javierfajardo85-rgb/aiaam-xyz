@@ -694,7 +694,7 @@ def _build_dashboard_ctx(session: Session) -> dict:
     # Traffic timelines — fetch raw timestamps, aggregate in Python
     raw_ts = session.exec(
         select(RequestLog.timestamp)
-        .where(RequestLog.timestamp >= s7d, ~RequestLog.path.startswith("/admin"))
+        .where(RequestLog.timestamp >= s7d)
     ).all()
 
     daily_keys = [(now - timedelta(days=6 - i)).strftime("%b %d") for i in range(7)]
@@ -838,14 +838,14 @@ def admin_dashboard(
         raise HTTPException(status_code=404, detail="Not Found")
     try:
         ctx = _build_dashboard_ctx(session)
+        ctx["request"] = request
+        response = templates.TemplateResponse("dashboard.html", ctx)
+        response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive"
+        response.headers.pop("server", None)
+        return response
     except Exception as exc:
         import traceback
         return JSONResponse({"error": str(exc), "trace": traceback.format_exc()}, status_code=500)
-    ctx["request"] = request
-    response = templates.TemplateResponse("dashboard.html", ctx)
-    response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive"
-    response.headers.pop("server", None)
-    return response
 
 
 # =====================================================================
