@@ -205,14 +205,17 @@ body { font-family: var(--font); background: var(--bg); color: var(--text1); fon
     <div class="kpi-sub">{{ req_7d }} in last 7 days</div>
   </div>
   <div class="kpi-card">
-    <div class="kpi-label">Tokens Saved · 7 d</div>
-    <div class="kpi-value" style="color:var(--blue)">{{ tokens_saved_est }}</div>
-    <div class="kpi-sub">est. 500 tokens / request</div>
+    <div class="kpi-label">Elite Agents · 7 d</div>
+    <div class="kpi-value" style="color:var(--blue)">{{ elite_count }}</div>
+    <div class="kpi-sub">
+      <span class="kpi-dot" style="background:var(--text2)"></span>{{ human_count }} human &nbsp;·&nbsp;
+      <span class="kpi-dot" style="background:var(--border)"></span>{{ unknown_count }} bot/unknown
+    </div>
   </div>
   <div class="kpi-card">
-    <div class="kpi-label">Monetizable Tools</div>
-    <div class="kpi-value" style="color:var(--orange)">{{ monetizable }}</div>
-    <div class="kpi-sub">affiliate programs active</div>
+    <div class="kpi-label">Tokens Saved · 7 d</div>
+    <div class="kpi-value" style="color:var(--green)">{{ tokens_saved_est }}</div>
+    <div class="kpi-sub">est. 500 tokens / request</div>
   </div>
   <div class="kpi-card">
     <div class="kpi-label">Est. Revenue · 7 d</div>

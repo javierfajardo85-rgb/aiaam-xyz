@@ -710,41 +710,58 @@ def _build_dashboard_ctx(session: Session) -> dict:
             if hk in hourly:
                 hourly[hk] += 1
 
-    # Top 10 tools (7d)
+    # Top 10 tools (7d) — exclude /instructions sub-paths
     top_rows = session.exec(
         select(RequestLog.path, func.count(RequestLog.id).label("n"))
         .where(
             RequestLog.timestamp >= s7d,
             RequestLog.path.startswith("/api/v1/tools/"),
-            ~RequestLog.path.contains("/instructions"),
         )
         .group_by(RequestLog.path)
         .order_by(func.count(RequestLog.id).desc())
-        .limit(10)
+        .limit(20)
     ).all()
-    top_tools = [
-        {"aid": p.replace("/api/v1/tools/", "").split("/")[0], "count": n}
-        for p, n in top_rows
-        if p.replace("/api/v1/tools/", "").split("/")[0]
-    ]
+    top_tools = []
+    seen_aids: set = set()
+    for p, n in top_rows:
+        aid = p.replace("/api/v1/tools/", "").split("/")[0]
+        if aid and aid not in seen_aids and not aid.endswith("instructions"):
+            seen_aids.add(aid)
+            top_tools.append({"aid": aid, "count": n})
+        if len(top_tools) == 10:
+            break
 
-    # User-agent buckets (7d)
-    ua_rows = session.exec(
-        select(RequestLog.user_agent, func.count(RequestLog.id).label("n"))
+    # Agent-type breakdown — use pre-computed agent_type field (same as intel endpoint)
+    agent_type_rows = session.exec(
+        select(RequestLog.agent_type, func.count(RequestLog.id).label("n"))
         .where(RequestLog.timestamp >= s7d)
+        .group_by(RequestLog.agent_type)
+    ).all()
+    agent_type_counts = {atype: n for atype, n in agent_type_rows}
+    elite_count   = agent_type_counts.get("elite",   0)
+    human_count   = agent_type_counts.get("human",   0)
+    unknown_count = agent_type_counts.get("unknown", 0)
+
+    # Elite Adoption pie — re-parse UA only for elite requests to get granular breakdown
+    elite_ua_rows = session.exec(
+        select(RequestLog.user_agent, func.count(RequestLog.id).label("n"))
+        .where(RequestLog.timestamp >= s7d, RequestLog.agent_type == "elite")
         .group_by(RequestLog.user_agent)
     ).all()
-    ua_buckets: dict = defaultdict(int)
-    for ua, n in ua_rows:
-        ua_buckets[_classify_ua_for_dashboard(ua)] += n
+    elite_buckets: dict = defaultdict(int)
+    for ua, n in elite_ua_rows:
+        elite_buckets[_classify_ua_for_dashboard(ua)] += n
+    # If no granular breakdown yet, show the totals by category
+    if not elite_buckets and elite_count > 0:
+        elite_buckets["Elite AI"] = elite_count
+    elite_adoption = dict(elite_buckets) if elite_buckets else {"No elite agents yet": 1}
 
-    elite_adoption = {
-        "Cursor":   ua_buckets.get("Cursor",  0),
-        "Claude":   ua_buckets.get("Claude",  0),
-        "Copilot":  ua_buckets.get("Copilot", 0),
-        "Other AI": ua_buckets.get("GPT", 0) + ua_buckets.get("Gemini", 0) + ua_buckets.get("Perplexity", 0),
+    # LLM Battleground — all agent types including human (shows full picture)
+    llm_bg = {
+        "Elite AI":  elite_count,
+        "Human":     human_count,
+        "Unknown/Bot": unknown_count,
     }
-    llm_bg = {k: v for k, v in ua_buckets.items() if k not in ("Human",)}
 
     # Health Grid — verified tools + latest sandbox check
     v_tools = session.exec(select(Tool).where(Tool.verified == True).order_by(Tool.aid)).all()
@@ -814,6 +831,9 @@ def _build_dashboard_ctx(session: Session) -> dict:
         "req_24h":           req_24h,
         "req_7d":            req_7d,
         "tokens_saved_est":  f"{tokens_saved:,}",
+        "elite_count":       elite_count,
+        "human_count":       human_count,
+        "unknown_count":     unknown_count,
         "traffic_7d":        json.dumps({"labels": list(daily.keys()),  "data": list(daily.values())}),
         "traffic_24h":       json.dumps({"labels": list(hourly.keys()), "data": list(hourly.values())}),
         "top_tools_json":    json.dumps(top_tools),
