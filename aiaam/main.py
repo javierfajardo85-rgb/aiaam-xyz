@@ -303,18 +303,12 @@ def translate_url(
 
     # Surface exact failure step
     if "github.com" in source_url:
-        import httpx as _httpx
-        from urllib.parse import urlparse as _up
-        _parts = _up(source_url).path.strip("/").split("/")
-        _owner, _repo = _parts[0], _parts[1]
-        _test_url = f"https://raw.githubusercontent.com/{_owner}/{_repo}/main/README.md"
-        try:
-            _r = _httpx.get(_test_url, timeout=10.0, follow_redirects=True)
-            _readme_status = _r.status_code
-        except Exception as _e:
-            raise HTTPException(status_code=422, detail=f"README fetch error: {type(_e).__name__}: {_e}")
-        if _readme_status != 200:
-            raise HTTPException(status_code=422, detail=f"README fetch returned HTTP {_readme_status} for {_test_url}")
+        _readme = fetch_github_readme(source_url)
+        if not _readme:
+            raise HTTPException(status_code=422, detail="README fetch returned None (tried main+master, all filenames)")
+        _mai1, _translator = translate(source_url)
+        if not _mai1:
+            raise HTTPException(status_code=422, detail=f"LLM translation failed (translator={_translator}). README fetched OK ({len(_readme)} chars)")
 
     try:
         tool = translate_and_save(source_url, session)
