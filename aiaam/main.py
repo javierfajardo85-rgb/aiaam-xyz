@@ -10,9 +10,11 @@ The 7 endpoints that make AIAAM work:
   POST /api/v1/ingest              → Admin: save a pre-built MAI-1 directly to DB
   GET  /admin/stats                → Telemetry dashboard (protected)
 """
+import json
 import os
 import re
 import time
+from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Optional
 from fastapi import FastAPI, Depends, Header, HTTPException, Request, Query
@@ -23,7 +25,7 @@ from sqlalchemy import cast, String, or_
 from sqlmodel import Session, select, func
 from dotenv import load_dotenv
 
-from models import Tool, TaxPayload, tool_to_mai1, InjectedRepo, RequestLog
+from models import Tool, TaxPayload, tool_to_mai1, InjectedRepo, RequestLog, TaxLog, HealthCheck
 from database import init_db, get_session, engine
 from analytics import log_transaction, get_stats, DEFAULT_TOKENS_SAVED, check_monetization_ratio
 from translator import translate_and_save, fetch_github_readme, translate
@@ -161,7 +163,9 @@ def llmo_root(request: Request, session: Session = Depends(get_session)):
     Pure HTML index optimized for AI crawlers (GPTBot, Claude-Web, etc.).
     No CSS. No JavaScript. Just a hierarchical list of all available MAI-1 entries.
     """
-    tools = session.exec(select(Tool).order_by(Tool.aid)).all()
+    tools = session.exec(
+        select(Tool).where(Tool.verified == True).order_by(Tool.aid)
+    ).all()
     return templates.TemplateResponse(
         "llmo.html",
         {
@@ -179,18 +183,23 @@ def robots():
     return (
         "User-agent: *\n"
         "Allow: /\n"
+        "Disallow: /admin/\n"
         "\n"
         "User-agent: GPTBot\n"
         "Allow: /\n"
+        "Disallow: /admin/\n"
         "\n"
         "User-agent: Claude-Web\n"
         "Allow: /\n"
+        "Disallow: /admin/\n"
         "\n"
         "User-agent: anthropic-ai\n"
         "Allow: /\n"
+        "Disallow: /admin/\n"
         "\n"
         "User-agent: Google-Extended\n"
         "Allow: /\n"
+        "Disallow: /admin/\n"
         "\n"
         "Sitemap: https://aiaam.xyz/sitemap.xml\n"
     )
@@ -217,11 +226,8 @@ def search_tools(
     If q is empty or absent → returns top 10 by reliability_score.
     Max 10 results per query.
     """
-    # Excluye herramientas que fallaron verificación Docker (verified=False)
-    # o que el tax_analyst marcó como dead (status="dead")
-    # is_not() generates "IS NOT" which is only valid for NULL/boolean in PostgreSQL.
-    # For string columns use != with explicit NULL guard.
-    not_failed = Tool.verified.is_not(False)
+    # Solo herramientas verificadas (triple sandbox pass) y no marcadas dead
+    verified = Tool.verified == True
     not_dead = or_(Tool.status.is_(None), Tool.status != "dead")
 
     if q and q.strip():
@@ -229,7 +235,7 @@ def search_tools(
         stmt = (
             select(Tool)
             .where(
-                not_failed,
+                verified,
                 not_dead,
                 or_(
                     Tool.aid.ilike(pattern),
@@ -245,7 +251,7 @@ def search_tools(
         )
     else:
         q = ""
-        stmt = select(Tool).where(not_failed, not_dead).order_by(Tool.reliability_score.desc()).limit(10)
+        stmt = select(Tool).where(verified, not_dead).order_by(Tool.reliability_score.desc()).limit(10)
 
     tools = session.exec(stmt).all()
     results = []
@@ -653,6 +659,189 @@ def intel(
         "elite_agent_ratio": elite_ratio,
         "monetization": monetization,
     }
+
+
+# =====================================================================
+# ADMIN DASHBOARD — invisible to agents, protected by token
+# =====================================================================
+
+def _classify_ua_for_dashboard(ua: str) -> str:
+    u = ua.lower()
+    if "cursor" in u:                              return "Cursor"
+    if "claude" in u or "anthropic" in u:          return "Claude"
+    if "copilot" in u or "github-copilot" in u:   return "Copilot"
+    if "gptbot" in u or "chatgpt" in u or "openai" in u: return "GPT"
+    if "gemini" in u or "google-extended" in u:   return "Gemini"
+    if "perplexity" in u:                          return "Perplexity"
+    if "mozilla" in u or "chrome" in u or "webkit" in u: return "Human"
+    return "Other"
+
+
+def _build_dashboard_ctx(session: Session) -> dict:
+    now     = datetime.utcnow()
+    s24h    = now - timedelta(hours=24)
+    s7d     = now - timedelta(days=7)
+
+    # KPIs
+    total_tools     = session.exec(select(func.count(Tool.aid))).one() or 0
+    verified_count  = session.exec(select(func.count(Tool.aid)).where(Tool.verified == True)).one() or 0
+    failed_count    = session.exec(select(func.count(Tool.aid)).where(Tool.verified == False)).one() or 0
+    pending_count   = total_tools - verified_count - failed_count
+    req_24h         = session.exec(select(func.count(RequestLog.id)).where(RequestLog.timestamp >= s24h)).one() or 0
+    req_7d          = session.exec(select(func.count(RequestLog.id)).where(RequestLog.timestamp >= s7d)).one() or 0
+    tokens_saved    = req_7d * 500
+
+    # Traffic timelines — fetch raw timestamps, aggregate in Python
+    raw_ts = session.exec(
+        select(RequestLog.timestamp)
+        .where(RequestLog.timestamp >= s7d, ~RequestLog.path.startswith("/admin"))
+    ).all()
+
+    daily_keys = [(now - timedelta(days=6 - i)).strftime("%b %d") for i in range(7)]
+    daily      = {k: 0 for k in daily_keys}
+    hourly_keys= [(now - timedelta(hours=23 - i)).strftime("%H:00") for i in range(24)]
+    hourly     = {k: 0 for k in hourly_keys}
+    for ts in raw_ts:
+        dk = ts.strftime("%b %d")
+        if dk in daily:
+            daily[dk] += 1
+        if ts >= s24h:
+            hk = ts.strftime("%H:00")
+            if hk in hourly:
+                hourly[hk] += 1
+
+    # Top 10 tools (7d)
+    top_rows = session.exec(
+        select(RequestLog.path, func.count(RequestLog.id).label("n"))
+        .where(
+            RequestLog.timestamp >= s7d,
+            RequestLog.path.startswith("/api/v1/tools/"),
+            ~RequestLog.path.contains("/instructions"),
+        )
+        .group_by(RequestLog.path)
+        .order_by(func.count(RequestLog.id).desc())
+        .limit(10)
+    ).all()
+    top_tools = [
+        {"aid": p.replace("/api/v1/tools/", "").split("/")[0], "count": n}
+        for p, n in top_rows
+        if p.replace("/api/v1/tools/", "").split("/")[0]
+    ]
+
+    # User-agent buckets (7d)
+    ua_rows = session.exec(
+        select(RequestLog.user_agent, func.count(RequestLog.id).label("n"))
+        .where(RequestLog.timestamp >= s7d)
+        .group_by(RequestLog.user_agent)
+    ).all()
+    ua_buckets: dict = defaultdict(int)
+    for ua, n in ua_rows:
+        ua_buckets[_classify_ua_for_dashboard(ua)] += n
+
+    elite_adoption = {
+        "Cursor":   ua_buckets.get("Cursor",  0),
+        "Claude":   ua_buckets.get("Claude",  0),
+        "Copilot":  ua_buckets.get("Copilot", 0),
+        "Other AI": ua_buckets.get("GPT", 0) + ua_buckets.get("Gemini", 0) + ua_buckets.get("Perplexity", 0),
+    }
+    llm_bg = {k: v for k, v in ua_buckets.items() if k not in ("Human",)}
+
+    # Health Grid — verified tools + latest sandbox check
+    v_tools = session.exec(select(Tool).where(Tool.verified == True).order_by(Tool.aid)).all()
+    aids    = [t.aid for t in v_tools]
+    all_hcs = session.exec(
+        select(HealthCheck).where(HealthCheck.aid.in_(aids)).order_by(HealthCheck.checked_at.desc())
+    ).all() if aids else []
+
+    latest_hc: dict = {}
+    for hc in all_hcs:
+        if hc.aid not in latest_hc:
+            latest_hc[hc.aid] = hc
+
+    health_grid = []
+    for t in v_tools:
+        hc = latest_hc.get(t.aid)
+        if hc:
+            status = "pass" if hc.sandbox_success else ("fail" if hc.sandbox_success is False else "partial")
+        else:
+            status = "unverified"
+        health_grid.append({
+            "aid":        t.aid,
+            "status":     status,
+            "score":      round(hc.response_integrity_score, 2) if hc and hc.response_integrity_score else None,
+            "checked_at": hc.checked_at.strftime("%Y-%m-%d") if hc and hc.checked_at else "—",
+            "platform":   t.source_platform,
+        })
+
+    # Agent briefing (derived from existing tables)
+    new_tools_24h  = session.exec(select(func.count(Tool.aid)).where(Tool.created_at >= s24h)).one() or 0
+    verified_24h   = session.exec(
+        select(func.count(Tool.aid))
+        .where(Tool.verified == True, Tool.last_verified_at >= s24h)
+    ).one() or 0
+    injected_24h   = session.exec(
+        select(func.count(InjectedRepo.id)).where(InjectedRepo.injected_at >= s24h)
+    ).one() or 0
+    tax_24h        = session.exec(
+        select(func.count(TaxLog.id)).where(TaxLog.timestamp >= s24h)
+    ).one() or 0
+
+    agent_briefing = [
+        {"name": "Sentinel",         "code": "B1", "count": new_tools_24h,  "unit": "repos scanned",       "desc": "New tools discovered via FOAM scoring"},
+        {"name": "Sanitizer",        "code": "B2", "count": verified_24h,   "unit": "tools verified",      "desc": "Triple-check: schema + URL + Docker"},
+        {"name": "Context Injector", "code": "B3", "count": injected_24h,   "unit": "PRs submitted",       "desc": "AGENTS.md injections to MIT/Apache repos"},
+        {"name": "Library Ghost",    "code": "B4", "count": 0,              "unit": "issues monitored",    "desc": "LangChain/CrewAI issue tracker"},
+        {"name": "Tax Analyst",      "code": "B5", "count": tax_24h,        "unit": "transactions logged", "desc": "AI tax receipts & reliability updates"},
+        {"name": "Translator",       "code": "B6", "count": 0,              "unit": "tools translated",    "desc": "README → MAI-1 on-demand"},
+        {"name": "Push Agent",       "code": "B7", "count": 0,              "unit": "catalog syncs",       "desc": "Local SQLite → Railway PostgreSQL"},
+    ]
+
+    # Revenue tracker
+    monetizable = session.exec(select(func.count(Tool.aid)).where(Tool.monetizable == True)).one() or 0
+    aff_clicks  = session.exec(
+        select(func.count(RequestLog.id))
+        .where(RequestLog.timestamp >= s7d, RequestLog.path.startswith("/api/v1/tools/"))
+    ).one() or 0
+    est_conv    = round(aff_clicks * 0.02)
+    est_rev     = est_conv * 10
+
+    return {
+        "now":               now.strftime("%Y-%m-%d %H:%M UTC"),
+        "total_tools":       total_tools,
+        "verified_count":    verified_count,
+        "failed_count":      failed_count,
+        "pending_count":     pending_count,
+        "req_24h":           req_24h,
+        "req_7d":            req_7d,
+        "tokens_saved_est":  f"{tokens_saved:,}",
+        "traffic_7d":        json.dumps({"labels": list(daily.keys()),  "data": list(daily.values())}),
+        "traffic_24h":       json.dumps({"labels": list(hourly.keys()), "data": list(hourly.values())}),
+        "top_tools_json":    json.dumps(top_tools),
+        "elite_adoption_json": json.dumps(elite_adoption),
+        "llm_bg_json":       json.dumps(llm_bg),
+        "health_grid":       health_grid,
+        "agent_briefing":    agent_briefing,
+        "monetizable":       monetizable,
+        "aff_clicks_7d":     aff_clicks,
+        "est_conv_7d":       est_conv,
+        "est_rev_7d":        est_rev,
+    }
+
+
+@app.get("/admin/dashboard", response_class=HTMLResponse, include_in_schema=False)
+def admin_dashboard(
+    request: Request,
+    token: Optional[str] = Query(default=None),
+    session: Session = Depends(get_session),
+):
+    if token != ADMIN_SECRET:
+        raise HTTPException(status_code=404, detail="Not Found")
+    ctx = _build_dashboard_ctx(session)
+    ctx["request"] = request
+    response = templates.TemplateResponse("dashboard.html", ctx)
+    response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive"
+    response.headers.pop("server", None)
+    return response
 
 
 # =====================================================================

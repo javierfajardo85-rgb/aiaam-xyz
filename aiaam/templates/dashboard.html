@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<title>AIAAM Command Center</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+/* ── Reset & Base ─────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg:        #F2F2F7;
+  --surface:   #FFFFFF;
+  --border:    #E5E5EA;
+  --text1:     #1C1C1E;
+  --text2:     #6E6E73;
+  --text3:     #AEAEB2;
+  --blue:      #007AFF;
+  --green:     #34C759;
+  --red:       #FF3B30;
+  --orange:    #FF9500;
+  --yellow:    #FFCC00;
+  --purple:    #AF52DE;
+  --teal:      #5AC8FA;
+  --radius:    14px;
+  --shadow:    0 1px 4px rgba(0,0,0,.08), 0 0 0 1px rgba(0,0,0,.04);
+  --shadow-lg: 0 4px 20px rgba(0,0,0,.1);
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+}
+body { font-family: var(--font); background: var(--bg); color: var(--text1); font-size: 15px; line-height: 1.5; }
+
+/* ── Layout ───────────────────────────────────────────────────── */
+.topbar {
+  background: rgba(255,255,255,.85);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  border-bottom: 1px solid var(--border);
+  padding: 0 24px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+.topbar-brand { font-weight: 700; font-size: 17px; letter-spacing: -.3px; }
+.topbar-brand span { color: var(--blue); }
+.topbar-meta { font-size: 12px; color: var(--text2); }
+.topbar-actions { display: flex; gap: 8px; align-items: center; }
+
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 14px; border-radius: 9px; font-size: 13px; font-weight: 500;
+  border: none; cursor: pointer; transition: opacity .15s;
+}
+.btn:hover { opacity: .8; }
+.btn-primary { background: var(--blue); color: #fff; }
+.btn-ghost { background: transparent; color: var(--text2); border: 1px solid var(--border); }
+
+.main { max-width: 1280px; margin: 0 auto; padding: 24px 20px 60px; }
+
+/* ── Toggle ───────────────────────────────────────────────────── */
+.toggle-group {
+  display: inline-flex; background: var(--border); border-radius: 8px; padding: 2px;
+}
+.toggle-group button {
+  padding: 4px 12px; border: none; background: transparent;
+  border-radius: 6px; font-size: 12px; font-weight: 500; cursor: pointer; color: var(--text2);
+}
+.toggle-group button.active { background: #fff; color: var(--text1); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+
+/* ── KPI Cards ────────────────────────────────────────────────── */
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-bottom: 24px; }
+.kpi-card {
+  background: var(--surface); border-radius: var(--radius); padding: 18px 20px;
+  box-shadow: var(--shadow);
+}
+.kpi-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .6px; color: var(--text2); margin-bottom: 8px; }
+.kpi-value { font-size: 32px; font-weight: 700; letter-spacing: -1px; line-height: 1; }
+.kpi-sub { font-size: 12px; color: var(--text2); margin-top: 4px; }
+.kpi-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
+
+/* ── Section titles ───────────────────────────────────────────── */
+.section { margin-bottom: 28px; }
+.section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.section-title { font-size: 17px; font-weight: 700; letter-spacing: -.3px; }
+
+/* ── Cards ────────────────────────────────────────────────────── */
+.card {
+  background: var(--surface); border-radius: var(--radius);
+  box-shadow: var(--shadow); overflow: hidden;
+}
+.card-header { padding: 16px 20px 0; display: flex; align-items: center; justify-content: space-between; }
+.card-title { font-size: 13px; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: .5px; }
+.card-body { padding: 16px 20px 20px; }
+
+.chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; margin-bottom: 24px; }
+.chart-wrap { position: relative; height: 240px; }
+
+/* ── Health Grid ──────────────────────────────────────────────── */
+.health-grid-wrap { display: flex; flex-wrap: wrap; gap: 6px; }
+.hg-cell {
+  width: 34px; height: 34px; border-radius: 7px; cursor: pointer;
+  transition: transform .12s;
+  position: relative;
+}
+.hg-cell:hover { transform: scale(1.15); z-index: 10; }
+.hg-cell.pass       { background: var(--green); }
+.hg-cell.fail       { background: var(--red); }
+.hg-cell.partial    { background: var(--orange); }
+.hg-cell.unverified { background: var(--border); }
+
+.hg-tooltip {
+  display: none; position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+  background: var(--text1); color: #fff; font-size: 11px; white-space: nowrap;
+  padding: 5px 9px; border-radius: 7px; z-index: 20; pointer-events: none;
+}
+.hg-cell:hover .hg-tooltip { display: block; }
+
+.hg-legend { display: flex; gap: 16px; margin-top: 14px; font-size: 12px; color: var(--text2); }
+.hg-legend-item { display: flex; align-items: center; gap: 6px; }
+.hg-legend-dot { width: 10px; height: 10px; border-radius: 3px; }
+
+/* ── Agent Briefing Timeline ──────────────────────────────────── */
+.timeline { display: flex; flex-direction: column; gap: 0; }
+.tl-item {
+  display: grid;
+  grid-template-columns: 32px 1fr;
+  gap: 0 14px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.tl-item:last-child { border-bottom: none; }
+.tl-dot-wrap { display: flex; flex-direction: column; align-items: center; padding-top: 3px; }
+.tl-dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  flex-shrink: 0;
+}
+.tl-dot.active  { background: var(--green); box-shadow: 0 0 0 3px rgba(52,199,89,.2); }
+.tl-dot.standby { background: var(--border); }
+.tl-line { flex: 1; width: 1px; background: var(--border); margin: 4px 0; }
+.tl-item:last-child .tl-line { display: none; }
+.tl-content {}
+.tl-top { display: flex; align-items: baseline; gap: 8px; }
+.tl-agent { font-weight: 600; font-size: 14px; }
+.tl-code { font-size: 11px; color: var(--text2); background: var(--bg); padding: 1px 6px; border-radius: 5px; }
+.tl-count { font-weight: 700; font-size: 18px; letter-spacing: -.5px; margin-left: auto; }
+.tl-count.standby { color: var(--text3); font-weight: 400; font-size: 13px; }
+.tl-desc { font-size: 12px; color: var(--text2); margin-top: 2px; }
+.tl-unit { font-size: 12px; color: var(--text2); }
+
+/* ── Revenue Tracker ──────────────────────────────────────────── */
+.rev-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 1px; background: var(--border); border-radius: var(--radius); overflow: hidden; }
+.rev-cell { background: var(--surface); padding: 16px 18px; }
+.rev-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; color: var(--text2); margin-bottom: 6px; }
+.rev-value { font-size: 26px; font-weight: 700; letter-spacing: -.8px; }
+.rev-note { font-size: 11px; color: var(--text3); margin-top: 3px; }
+
+/* ── Two-col layout ───────────────────────────────────────────── */
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+@media (max-width: 760px) {
+  .two-col { grid-template-columns: 1fr; }
+  .chart-grid { grid-template-columns: 1fr; }
+  .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ── Print styles ─────────────────────────────────────────────── */
+@media print {
+  .no-print, .topbar-actions { display: none !important; }
+  .topbar { position: static; backdrop-filter: none; box-shadow: none; border-bottom: 1px solid var(--border); }
+  body { background: white; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .card, .kpi-card { box-shadow: none; border: 1px solid var(--border); page-break-inside: avoid; }
+  .main { padding: 16px; }
+  .chart-grid, .two-col { page-break-inside: avoid; }
+}
+</style>
+</head>
+<body>
+
+<!-- ── Top Bar ────────────────────────────────────────────────── -->
+<div class="topbar no-print-bg">
+  <div style="display:flex;align-items:center;gap:16px;">
+    <div class="topbar-brand">AIAAM <span>Command Center</span></div>
+    <div class="topbar-meta">Updated {{ now }}</div>
+  </div>
+  <div class="topbar-actions">
+    <button class="btn btn-ghost no-print" onclick="window.print()">Export PDF</button>
+  </div>
+</div>
+
+<div class="main">
+
+<!-- ── KPI Row ───────────────────────────────────────────────── -->
+<div class="kpi-grid">
+  <div class="kpi-card">
+    <div class="kpi-label">Verified Tools</div>
+    <div class="kpi-value" style="color:var(--green)">{{ verified_count }}</div>
+    <div class="kpi-sub"><span class="kpi-dot" style="background:var(--red)"></span>{{ failed_count }} failed &nbsp;·&nbsp; {{ pending_count }} pending</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Requests · 24 h</div>
+    <div class="kpi-value">{{ req_24h }}</div>
+    <div class="kpi-sub">{{ req_7d }} in last 7 days</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Tokens Saved · 7 d</div>
+    <div class="kpi-value" style="color:var(--blue)">{{ tokens_saved_est }}</div>
+    <div class="kpi-sub">est. 500 tokens / request</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Monetizable Tools</div>
+    <div class="kpi-value" style="color:var(--orange)">{{ monetizable }}</div>
+    <div class="kpi-sub">affiliate programs active</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Est. Revenue · 7 d</div>
+    <div class="kpi-value" style="color:var(--purple)">${{ est_rev_7d }}</div>
+    <div class="kpi-sub">{{ est_conv_7d }} conv. @ 2% · $10 avg</div>
+  </div>
+</div>
+
+<!-- ── Traffic + Elite Adoption ──────────────────────────────── -->
+<div class="chart-grid section">
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Traffic Volume</span>
+      <div class="toggle-group no-print" id="traffic-toggle">
+        <button class="active" onclick="switchTraffic('7d',this)">7 days</button>
+        <button onclick="switchTraffic('24h',this)">24 h</button>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="chart-wrap"><canvas id="trafficChart"></canvas></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><span class="card-title">Elite Agent Adoption</span></div>
+    <div class="card-body">
+      <div class="chart-wrap"><canvas id="eliteChart"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Top Tools + LLM Battleground ──────────────────────────── -->
+<div class="chart-grid section">
+  <div class="card">
+    <div class="card-header"><span class="card-title">Top 10 Tools · 7 days</span></div>
+    <div class="card-body">
+      <div class="chart-wrap" style="height:280px"><canvas id="topToolsChart"></canvas></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><span class="card-title">LLM Battleground · 7 days</span></div>
+    <div class="card-body">
+      <div class="chart-wrap"><canvas id="llmChart"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Health Grid ────────────────────────────────────────────── -->
+<div class="section">
+  <div class="section-header">
+    <span class="section-title">Health Grid — {{ verified_count }} Verified Tools</span>
+  </div>
+  <div class="card">
+    <div class="card-body">
+      <div class="health-grid-wrap">
+        {% for cell in health_grid %}
+        <div class="hg-cell {{ cell.status }}" title="{{ cell.aid }}">
+          <div class="hg-tooltip">
+            <strong>{{ cell.aid }}</strong><br>
+            {{ cell.platform }} · {{ cell.status }}<br>
+            {% if cell.score %}score {{ cell.score }}{% endif %} {{ cell.checked_at }}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="hg-legend">
+        <div class="hg-legend-item"><div class="hg-legend-dot" style="background:var(--green)"></div>Sandbox pass</div>
+        <div class="hg-legend-item"><div class="hg-legend-dot" style="background:var(--red)"></div>Sandbox fail</div>
+        <div class="hg-legend-item"><div class="hg-legend-dot" style="background:var(--orange)"></div>Partial</div>
+        <div class="hg-legend-item"><div class="hg-legend-dot" style="background:var(--border)"></div>No check yet</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Two-col: Agent Briefing + Revenue ─────────────────────── -->
+<div class="two-col">
+  <div class="section" style="margin-bottom:0">
+    <div class="section-header"><span class="section-title">Agent Daily Briefing — Last 24 h</span></div>
+    <div class="card">
+      <div class="card-body" style="padding-top:8px;padding-bottom:8px;">
+        <div class="timeline">
+          {% for ag in agent_briefing %}
+          <div class="tl-item">
+            <div class="tl-dot-wrap">
+              <div class="tl-dot {% if ag.count > 0 %}active{% else %}standby{% endif %}"></div>
+              <div class="tl-line"></div>
+            </div>
+            <div class="tl-content">
+              <div class="tl-top">
+                <span class="tl-agent">{{ ag.name }}</span>
+                <span class="tl-code">{{ ag.code }}</span>
+                {% if ag.count > 0 %}
+                <span class="tl-count">{{ ag.count }}<span class="tl-unit"> {{ ag.unit }}</span></span>
+                {% else %}
+                <span class="tl-count standby">Standby / Scanning</span>
+                {% endif %}
+              </div>
+              <div class="tl-desc">{{ ag.desc }}</div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section" style="margin-bottom:0">
+    <div class="section-header"><span class="section-title">Revenue Tracker · 7 days</span></div>
+    <div class="card" style="margin-bottom:16px;">
+      <div class="rev-grid">
+        <div class="rev-cell">
+          <div class="rev-label">Affiliate Clicks</div>
+          <div class="rev-value">{{ aff_clicks_7d }}</div>
+          <div class="rev-note">tool endpoint hits</div>
+        </div>
+        <div class="rev-cell">
+          <div class="rev-label">Conversions</div>
+          <div class="rev-value">{{ est_conv_7d }}</div>
+          <div class="rev-note">est. 2% rate</div>
+        </div>
+        <div class="rev-cell">
+          <div class="rev-label">Revenue</div>
+          <div class="rev-value" style="color:var(--green)">${{ est_rev_7d }}</div>
+          <div class="rev-note">$10 avg commission</div>
+        </div>
+        <div class="rev-cell">
+          <div class="rev-label">Active Programs</div>
+          <div class="rev-value" style="color:var(--orange)">{{ monetizable }}</div>
+          <div class="rev-note">monetizable tools</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-header"><span class="section-title" style="font-size:15px;">Affiliate Pipeline</span></div>
+    <div class="card">
+      <div class="card-body">
+        {% set programs = [
+          ("Firecrawl", "firecrawl-v1", "Tier A — no traffic min"),
+          ("LangFuse",  "langfuse-python-v1", "Tier A — no traffic min"),
+          ("Qdrant",    "qdrant-v1", "Tier A — no traffic min"),
+        ] %}
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead>
+            <tr style="border-bottom:1px solid var(--border);">
+              <th style="text-align:left;padding:6px 0;color:var(--text2);font-weight:600;">Partner</th>
+              <th style="text-align:left;padding:6px 0;color:var(--text2);font-weight:600;">Tool AID</th>
+              <th style="text-align:right;padding:6px 0;color:var(--text2);font-weight:600;">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for name, aid, note in programs %}
+            <tr style="border-bottom:1px solid var(--border);">
+              <td style="padding:8px 0;font-weight:600;">{{ name }}</td>
+              <td style="padding:8px 0;color:var(--text2);">{{ aid }}</td>
+              <td style="padding:8px 0;text-align:right;">
+                <span style="background:#FFF3E0;color:var(--orange);padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;">Pending</span>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /main -->
+
+<script>
+/* ── Data from server ───────────────────────────────────────── */
+const traffic7d   = {{ traffic_7d | safe }};
+const traffic24h  = {{ traffic_24h | safe }};
+const topTools    = {{ top_tools_json | safe }};
+const eliteData   = {{ elite_adoption_json | safe }};
+const llmData     = {{ llm_bg_json | safe }};
+
+/* ── Palette ─────────────────────────────────────────────────── */
+const P = {
+  blue:   'rgba(0,122,255,',
+  green:  'rgba(52,199,89,',
+  red:    'rgba(255,59,48,',
+  orange: 'rgba(255,149,0,',
+  yellow: 'rgba(255,204,0,',
+  purple: 'rgba(175,82,222,',
+  teal:   'rgba(90,200,250,',
+  gray:   'rgba(142,142,147,',
+};
+const solid = c => c+'1)';
+const muted = c => c+'.15)';
+
+const AGENT_COLORS = {
+  Cursor:     P.blue,
+  Claude:     P.orange,
+  Copilot:    P.green,
+  GPT:        P.red,
+  Gemini:     P.purple,
+  Perplexity: P.teal,
+  Human:      P.gray,
+  Other:      P.gray,
+  'Other AI': P.gray,
+};
+
+Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif';
+Chart.defaults.font.size   = 12;
+Chart.defaults.color       = '#6E6E73';
+
+/* ── Traffic Chart ───────────────────────────────────────────── */
+let trafficMode = '7d';
+const trafficCtx = document.getElementById('trafficChart').getContext('2d');
+const trafficChart = new Chart(trafficCtx, {
+  type: 'line',
+  data: {
+    labels: traffic7d.labels,
+    datasets: [{
+      label: 'Requests',
+      data: traffic7d.data,
+      borderColor: solid(P.blue),
+      backgroundColor: muted(P.blue),
+      borderWidth: 2,
+      fill: true,
+      tension: 0.4,
+      pointRadius: 3,
+      pointBackgroundColor: solid(P.blue),
+    }]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { grid: { display: false }, border: { display: false } },
+      y: { grid: { color: 'rgba(0,0,0,.04)' }, border: { display: false }, ticks: { stepSize: 1 }, beginAtZero: true }
+    }
+  }
+});
+
+function switchTraffic(mode, btn) {
+  trafficMode = mode;
+  document.querySelectorAll('#traffic-toggle button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  const d = mode === '7d' ? traffic7d : traffic24h;
+  trafficChart.data.labels   = d.labels;
+  trafficChart.data.datasets[0].data = d.data;
+  trafficChart.update();
+}
+
+/* ── Elite Adoption Pie ──────────────────────────────────────── */
+(function(){
+  const labels = Object.keys(eliteData).filter(k => eliteData[k] > 0);
+  const values = labels.map(k => eliteData[k]);
+  if (labels.length === 0) { labels.push('No data yet'); values.push(1); }
+  const colors = labels.map(l => solid(AGENT_COLORS[l] || P.gray));
+  new Chart(document.getElementById('eliteChart').getContext('2d'), {
+    type: 'doughnut',
+    data: {
+      labels,
+      datasets: [{ data: values, backgroundColor: colors, borderWidth: 2, borderColor: '#fff', hoverOffset: 6 }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: '62%',
+      plugins: {
+        legend: { position: 'right', labels: { boxWidth: 10, borderRadius: 3, padding: 14 } }
+      }
+    }
+  });
+})();
+
+/* ── Top Tools Horizontal Bar ────────────────────────────────── */
+(function(){
+  const labels = topTools.length ? topTools.map(t => t.aid) : ['No data yet'];
+  const values = topTools.length ? topTools.map(t => t.count) : [0];
+  new Chart(document.getElementById('topToolsChart').getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Requests',
+        data: values,
+        backgroundColor: solid(P.blue),
+        borderRadius: 6,
+        borderSkipped: false,
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { color: 'rgba(0,0,0,.04)' }, border: { display: false }, beginAtZero: true },
+        y: { grid: { display: false }, border: { display: false }, ticks: { font: { size: 11 } } }
+      }
+    }
+  });
+})();
+
+/* ── LLM Battleground ────────────────────────────────────────── */
+(function(){
+  const entries = Object.entries(llmData).filter(([k,v]) => v > 0);
+  const labels  = entries.length ? entries.map(([k]) => k) : ['No data yet'];
+  const values  = entries.length ? entries.map(([,v]) => v) : [0];
+  const colors  = labels.map(l => solid(AGENT_COLORS[l] || P.gray));
+  new Chart(document.getElementById('llmChart').getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Requests',
+        data: values,
+        backgroundColor: colors,
+        borderRadius: 7,
+        borderSkipped: false,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { display: false }, border: { display: false } },
+        y: { grid: { color: 'rgba(0,0,0,.04)' }, border: { display: false }, beginAtZero: true }
+      }
+    }
+  });
+})();
+</script>
+</body>
+</html>
