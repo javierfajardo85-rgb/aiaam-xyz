@@ -28,6 +28,7 @@ Uso:
 import re
 import sys
 import time
+import uuid
 import shutil
 import argparse
 import subprocess
@@ -47,7 +48,7 @@ from models import Tool, HealthCheck
 
 load_dotenv()
 
-DOCKER_TIMEOUT = 60
+DOCKER_TIMEOUT = 180
 VERIFIED_SCORE = 0.85
 MEMORY_LIMIT   = "256m"
 CPU_LIMIT      = "0.5"
@@ -148,7 +149,12 @@ def _detect_runtime(cmd: str) -> Optional[tuple[str, str]]:
     if _PIP_PATTERN.match(cmd):
         return "python:3.11-slim", cmd
     if _NPM_PATTERN.match(cmd):
-        return "node:20-slim", cmd
+        # npm 10 raises "idealTree already exists" when the working dir has npm state.
+        # cd to a fresh tmpdir + --no-save --no-package-lock --ignore-scripts fixes it.
+        return "node:20-slim", (
+            "mkdir -p /tmp/npm-test && cd /tmp/npm-test && "
+            + cmd + " --no-save --no-package-lock --ignore-scripts"
+        )
     return None
 
 
@@ -175,34 +181,44 @@ def check_sandbox(
         return None, 0, 0.0, f"unverifiable: format not supported — {install_cmd[:80]}"
 
     image, shell_cmd = runtime
+    container_name = f"aiaam-{uuid.uuid4().hex[:10]}"
+    # Skip browser binary downloads for playwright/puppeteer — verifies JS package only
+    env_flags = []
+    if "playwright" in shell_cmd:
+        env_flags = ["-e", "PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1"]
+    elif "puppeteer" in shell_cmd:
+        env_flags = ["-e", "PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true",
+                     "-e", "PUPPETEER_SKIP_DOWNLOAD=true"]
     docker_cmd = [
         "docker", "run", "--rm",
+        "--name", container_name,
         f"--memory={MEMORY_LIMIT}",
         f"--cpus={CPU_LIMIT}",
         "--network=host",
+        *env_flags,
         image,
         "sh", "-c", shell_cmd,
     ]
 
     t0 = time.time()
+    proc = subprocess.Popen(docker_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
-        result = subprocess.run(
-            docker_cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
+        stdout, stderr = proc.communicate(timeout=timeout)
         latency_ms = int((time.time() - t0) * 1000)
-        log = (result.stdout + result.stderr).strip()[:2000]
-        success = result.returncode == 0
+        log = (stdout + stderr).strip()[:2000]
+        success = proc.returncode == 0
         integrity = 1.0 if success else 0.0
         error = None if success else log[:300]
         return success, latency_ms, integrity, error
     except subprocess.TimeoutExpired:
         latency_ms = int((time.time() - t0) * 1000)
+        proc.kill()
+        # Explicitly kill the Docker container so it doesn't linger
+        subprocess.run(["docker", "kill", container_name], capture_output=True, timeout=10)
         return False, latency_ms, 0.0, f"sandbox: timeout after {timeout}s"
     except Exception as exc:
         latency_ms = int((time.time() - t0) * 1000)
+        subprocess.run(["docker", "kill", container_name], capture_output=True, timeout=10)
         return None, latency_ms, 0.0, f"sandbox: {exc}"
 
 
