@@ -141,27 +141,33 @@ def fetch_github_readme(repo_url: str) -> Optional[str]:
         return None
     owner, repo = parts[0], parts[1]
 
+    # Read token fresh at call time (not from module-level constant).
+    # No auth for public repos — avoids issues with auto-injected Railway tokens.
+    token = os.getenv("GITHUB_TOKEN")
     headers = {"Accept": "application/vnd.github.v3.raw"}
-    if GITHUB_TOKEN:
-        headers["Authorization"] = f"token {GITHUB_TOKEN}"
+    if token:
+        headers["Authorization"] = f"token {token}"
 
-    # Primary: GitHub API readme endpoint (works without raw.githubusercontent.com)
-    api_url = f"https://api.github.com/repos/{owner}/{repo}/readme"
-    resp = httpx.get(api_url, headers=headers, timeout=30.0, follow_redirects=True)
-    if resp.status_code == 200:
-        content = resp.text
-        if len(content) > 50:
-            return content[:8000]
+    # Primary: GitHub API readme endpoint
+    try:
+        api_url = f"https://api.github.com/repos/{owner}/{repo}/readme"
+        resp = httpx.get(api_url, headers=headers, timeout=30.0, follow_redirects=True)
+        if resp.status_code == 200 and len(resp.text) > 50:
+            return resp.text[:8000]
+        # If token caused a 401/403, retry without auth
+        if resp.status_code in (401, 403) and token:
+            resp = httpx.get(api_url, headers={"Accept": "application/vnd.github.v3.raw"}, timeout=30.0, follow_redirects=True)
+            if resp.status_code == 200 and len(resp.text) > 50:
+                return resp.text[:8000]
+    except Exception:
+        pass
 
     # Fallback: raw.githubusercontent.com
-    raw_headers = {"Accept": "application/vnd.github.v3.raw"}
-    if GITHUB_TOKEN:
-        raw_headers["Authorization"] = f"token {GITHUB_TOKEN}"
     for branch in ["main", "master"]:
         for filename in ["README.md", "README.rst", "README.txt", "readme.md"]:
             url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{filename}"
             try:
-                resp = httpx.get(url, headers=raw_headers, timeout=30.0, follow_redirects=True)
+                resp = httpx.get(url, headers={"Accept": "application/vnd.github.v3.raw"}, timeout=30.0, follow_redirects=True)
                 if resp.status_code == 200 and len(resp.text) > 50:
                     return resp.text[:8000]
             except Exception:
