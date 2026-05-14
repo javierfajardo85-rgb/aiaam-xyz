@@ -507,6 +507,13 @@ class IngestRequest(BaseModel):
     execute_cmd: Optional[str] = None
     source_platform: str = "github"
     translator_used: str = "haiku"
+    # Extended fields for catalog sync
+    foam_score: Optional[int] = None
+    verified: Optional[bool] = None
+    status: Optional[str] = None
+    health_score: Optional[float] = None
+    affiliate_tag: Optional[str] = None
+    monetizable: bool = False
 
 
 @app.post("/api/v1/ingest")
@@ -534,6 +541,12 @@ def ingest_tool(
         execute_cmd=body.execute_cmd,
         source_platform=body.source_platform,
         translator_used=body.translator_used,
+        foam_score=body.foam_score,
+        verified=body.verified,
+        status=body.status,
+        health_score=body.health_score,
+        affiliate_tag=body.affiliate_tag,
+        monetizable=body.monetizable,
     )
     session.merge(tool)
     session.commit()
