@@ -118,6 +118,16 @@ def on_startup():
     init_db()
 
 
+@app.get("/health")
+def health(session: Session = Depends(get_session)):
+    """DB connectivity probe — returns first tool aid or error detail."""
+    try:
+        row = session.exec(select(Tool).limit(1)).first()
+        return {"status": "ok", "db": "connected", "sample_aid": row.aid if row else None}
+    except Exception as exc:
+        return {"status": "error", "detail": str(exc)}
+
+
 # =====================================================================
 # HELPERS — Tax processing (zero LLM calls)
 # =====================================================================
