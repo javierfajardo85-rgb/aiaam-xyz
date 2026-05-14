@@ -53,6 +53,8 @@ def _migrate_columns():
         ("tools",           "status",                  "VARCHAR"),
         ("tools",           "last_verified_at",        "DATETIME"),
         ("tools",           "health_score",            "FLOAT"),
+        ("tools",           "affiliate_tag",           "VARCHAR"),
+        ("tools",           "monetizable",             "BOOLEAN"),
         # health_checks se crea completa vía create_all; no necesita ALTER TABLE
         ("tax_logs",        "validation_vote",         "VARCHAR"),
         ("tax_logs",        "validation_candidate_aid","VARCHAR"),

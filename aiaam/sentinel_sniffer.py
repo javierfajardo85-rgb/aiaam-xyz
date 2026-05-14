@@ -36,6 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from database import engine, init_db
 from models import Tool
 from translator import translate_and_save
+from analytics import check_monetization_ratio
 
 load_dotenv()
 
@@ -214,6 +215,7 @@ def run(dry_run: bool = False) -> list[dict]:
                 session.commit()
                 print(f"      OK → aid={tool.aid}  translator={tool.translator_used}\n")
                 results.append({"url": url, "foam_score": foam_score, "aid": tool.aid})
+                check_monetization_ratio(session)
             else:
                 print(f"      FAIL — translation returned None\n")
                 results.append({"url": url, "foam_score": foam_score, "action": "failed"})

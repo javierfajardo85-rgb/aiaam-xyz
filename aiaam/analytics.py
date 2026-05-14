@@ -99,6 +99,39 @@ def recalculate_from_votes(session: Session, tool_aid: str) -> None:
     session.add(tool)
 
 
+def check_monetization_ratio(session: Session) -> dict:
+    """
+    Calcula el ratio de tools monetizables sobre el total verificado.
+    Alerta en logs si cae por debajo del 30 %.
+    Llamada por sentinel_sniffer cada vez que añade una herramienta.
+    """
+    total_verified = session.exec(
+        select(func.count(Tool.aid)).where(Tool.verified == True)
+    ).one()
+    total_monetizable = session.exec(
+        select(func.count(Tool.aid)).where(Tool.monetizable == True)
+    ).one()
+
+    ratio = round(total_monetizable / total_verified, 4) if total_verified else 0.0
+    threshold = 0.30
+
+    result = {
+        "verified_total": total_verified,
+        "monetizable_total": total_monetizable,
+        "ratio": ratio,
+        "threshold": threshold,
+        "healthy": ratio >= threshold,
+    }
+
+    if not result["healthy"]:
+        print(
+            f"[monetization] ⚠  ratio={ratio:.1%} below {threshold:.0%} threshold "
+            f"({total_monetizable}/{total_verified} verified tools). "
+            f"Add affiliate programmes for vector DBs, observability, or model APIs."
+        )
+    return result
+
+
 def get_stats(session: Session) -> dict:
     """Return analytics summary for admin dashboard."""
     now = datetime.utcnow()

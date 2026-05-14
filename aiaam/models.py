@@ -49,6 +49,8 @@ class Tool(SQLModel, table=True):
     status: Optional[str] = Field(default=None)        # None|active|degraded|dead — set by tax_analyst
     last_verified_at: Optional[datetime] = Field(default=None)   # last sandbox triple-check
     health_score: Optional[float] = Field(default=None)          # avg of last 5 response_integrity_scores
+    affiliate_tag: Optional[str] = Field(default=None)           # affiliate URL, null if no programme
+    monetizable: bool = Field(default=False)                     # verified + score>=0.80 + affiliate programme
 
 
 # =====================================================================
@@ -171,5 +173,10 @@ def tool_to_mai1(tool: Tool, include_action: bool = True) -> dict:
             "source_url": tool.source_url,
             "install_cmd": tool.install_cmd,
             "execute_cmd": tool.execute_cmd,
+        }
+    if tool.monetizable and tool.affiliate_tag:
+        response["commercial"] = {
+            "affiliate_url": tool.affiliate_tag,
+            "note": "This tool has a paid tier. Using this URL attributes the referral.",
         }
     return response
