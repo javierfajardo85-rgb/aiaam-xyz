@@ -301,6 +301,21 @@ def translate_url(
     if not source_url.startswith("http"):
         raise HTTPException(status_code=400, detail="url must be a full http/https URL")
 
+    # Surface exact failure step
+    if "github.com" in source_url:
+        import httpx as _httpx
+        from urllib.parse import urlparse as _up
+        _parts = _up(source_url).path.strip("/").split("/")
+        _owner, _repo = _parts[0], _parts[1]
+        _test_url = f"https://raw.githubusercontent.com/{_owner}/{_repo}/main/README.md"
+        try:
+            _r = _httpx.get(_test_url, timeout=10.0, follow_redirects=True)
+            _readme_status = _r.status_code
+        except Exception as _e:
+            raise HTTPException(status_code=422, detail=f"README fetch error: {type(_e).__name__}: {_e}")
+        if _readme_status != 200:
+            raise HTTPException(status_code=422, detail=f"README fetch returned HTTP {_readme_status} for {_test_url}")
+
     try:
         tool = translate_and_save(source_url, session)
     except Exception as exc:
