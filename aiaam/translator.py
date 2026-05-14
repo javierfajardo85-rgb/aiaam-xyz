@@ -484,17 +484,13 @@ def translate_with_haiku(prompt: str) -> Optional[dict]:
     """Call Haiku to generate MAI-1 draft."""
     if not client:
         raise RuntimeError("ANTHROPIC_API_KEY not configured")
-    try:
-        response = client.messages.create(
-            model=MODEL_PRIMARY,
-            max_tokens=800,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        text = response.content[0].text
-        return _extract_json(text)
-    except Exception as e:
-        print(f"[translator] Haiku error: {e}")
-        return None
+    response = client.messages.create(
+        model=MODEL_PRIMARY,
+        max_tokens=800,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    text = response.content[0].text
+    return _extract_json(text)
 
 
 def review_with_sonnet(source_content: str, draft: dict) -> Optional[dict]:
@@ -505,17 +501,13 @@ def review_with_sonnet(source_content: str, draft: dict) -> Optional[dict]:
         source_content=source_content[:6000],
         draft_mai1=json.dumps(draft, indent=2),
     )
-    try:
-        response = client.messages.create(
-            model=MODEL_REVIEWER,
-            max_tokens=800,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        text = response.content[0].text
-        return _extract_json(text)
-    except Exception as e:
-        print(f"[translator] Sonnet error: {e}")
-        return None
+    response = client.messages.create(
+        model=MODEL_REVIEWER,
+        max_tokens=800,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    text = response.content[0].text
+    return _extract_json(text)
 
 
 # =====================================================================
