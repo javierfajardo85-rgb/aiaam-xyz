@@ -134,7 +134,7 @@ DRAFT MAI-1:
 # =====================================================================
 
 def fetch_github_readme(repo_url: str) -> Optional[str]:
-    """Fetch README content from a GitHub repo URL."""
+    """Fetch README content from a GitHub repo URL via the GitHub API."""
     parsed = urlparse(repo_url)
     parts = parsed.path.strip("/").split("/")
     if len(parts) < 2:
@@ -145,14 +145,25 @@ def fetch_github_readme(repo_url: str) -> Optional[str]:
     if GITHUB_TOKEN:
         headers["Authorization"] = f"token {GITHUB_TOKEN}"
 
-    # Try main, then master
+    # Primary: GitHub API readme endpoint (works without raw.githubusercontent.com)
+    api_url = f"https://api.github.com/repos/{owner}/{repo}/readme"
+    try:
+        resp = httpx.get(api_url, headers=headers, timeout=10.0, follow_redirects=True)
+        if resp.status_code == 200 and len(resp.text) > 50:
+            return resp.text[:8000]
+    except Exception:
+        pass
+
+    # Fallback: raw.githubusercontent.com
+    raw_headers = {"Accept": "application/vnd.github.v3.raw"}
+    if GITHUB_TOKEN:
+        raw_headers["Authorization"] = f"token {GITHUB_TOKEN}"
     for branch in ["main", "master"]:
         for filename in ["README.md", "README.rst", "README.txt", "readme.md"]:
             url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{filename}"
             try:
-                resp = httpx.get(url, headers=headers, timeout=10.0, follow_redirects=True)
+                resp = httpx.get(url, headers=raw_headers, timeout=10.0, follow_redirects=True)
                 if resp.status_code == 200 and len(resp.text) > 50:
-                    # Truncate to avoid massive context
                     return resp.text[:8000]
             except Exception:
                 continue

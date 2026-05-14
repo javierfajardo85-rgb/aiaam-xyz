@@ -301,15 +301,6 @@ def translate_url(
     if not source_url.startswith("http"):
         raise HTTPException(status_code=400, detail="url must be a full http/https URL")
 
-    # Surface exact failure step
-    if "github.com" in source_url:
-        _readme = fetch_github_readme(source_url)
-        if not _readme:
-            raise HTTPException(status_code=422, detail="README fetch returned None (tried main+master, all filenames)")
-        _mai1, _translator = translate(source_url)
-        if not _mai1:
-            raise HTTPException(status_code=422, detail=f"LLM translation failed (translator={_translator}). README fetched OK ({len(_readme)} chars)")
-
     try:
         tool = translate_and_save(source_url, session)
     except Exception as exc:
@@ -402,7 +393,7 @@ def admin_stats(
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "protocol": "MAI-1", "service": "aiaam.xyz", "v": "debug-3"}
+    return {"status": "ok", "protocol": "MAI-1", "service": "aiaam.xyz", "v": "debug-4"}
 
 
 if __name__ == "__main__":
