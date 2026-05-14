@@ -219,8 +219,10 @@ def search_tools(
     """
     # Excluye herramientas que fallaron verificación Docker (verified=False)
     # o que el tax_analyst marcó como dead (status="dead")
+    # is_not() generates "IS NOT" which is only valid for NULL/boolean in PostgreSQL.
+    # For string columns use != with explicit NULL guard.
     not_failed = Tool.verified.is_not(False)
-    not_dead = Tool.status.is_not("dead")
+    not_dead = or_(Tool.status.is_(None), Tool.status != "dead")
 
     if q and q.strip():
         pattern = f"%{q.strip().lower()}%"
