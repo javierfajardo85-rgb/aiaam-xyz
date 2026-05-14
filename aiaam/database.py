@@ -46,12 +46,13 @@ def _migrate_columns():
     """
     is_sqlite = DATABASE_URL.startswith("sqlite")
     migrations = [
-        # table,     column,                    sql_type
-        ("tools",     "foam_score",              "INTEGER"),
-        ("tools",     "verified",                "BOOLEAN"),
-        ("tax_logs",  "validation_vote",         "VARCHAR"),
-        ("tax_logs",  "validation_candidate_aid","VARCHAR"),
-        ("tax_logs",  "referral_confirmed",      "BOOLEAN"),
+        # table,            column,                    sql_type
+        ("tools",           "foam_score",              "INTEGER"),
+        ("tools",           "verified",                "BOOLEAN"),
+        ("tax_logs",        "validation_vote",         "VARCHAR"),
+        ("tax_logs",        "validation_candidate_aid","VARCHAR"),
+        ("tax_logs",        "referral_confirmed",      "BOOLEAN"),
+        # injected_repos se crea completa vía create_all; no necesita ALTER TABLE
     ]
     with engine.begin() as conn:
         for table, column, sql_type in migrations:

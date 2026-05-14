@@ -22,7 +22,7 @@ from sqlalchemy import cast, String, or_
 from sqlmodel import Session, select, func
 from dotenv import load_dotenv
 
-from models import Tool, TaxPayload, tool_to_mai1
+from models import Tool, TaxPayload, tool_to_mai1, InjectedRepo
 from database import init_db, get_session
 from analytics import log_transaction, get_stats, DEFAULT_TOKENS_SAVED
 from translator import translate_and_save, fetch_github_readme, translate
@@ -338,6 +338,27 @@ def post_tool(
         validation_candidate_aid=_extract_candidate_aid(mai1),
     )
     return mai1
+
+
+# =====================================================================
+# AGENT INSTRUCTIONS — Sirve el AGENT_INSTRUCTIONS.md generado por B3
+# =====================================================================
+
+@app.get("/api/v1/tools/{aid}/instructions", response_class=PlainTextResponse)
+def get_instructions(aid: str, session: Session = Depends(get_session)):
+    """
+    Devuelve el AGENT_INSTRUCTIONS.md generado por context_injector para el tool.
+    Solo disponible para tools con licencia MIT o Apache-2.0.
+    """
+    record = session.exec(
+        select(InjectedRepo).where(InjectedRepo.aid == aid)
+    ).first()
+    if not record:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No instructions available for '{aid}'. Tool may lack MIT/Apache-2.0 license.",
+        )
+    return record.instructions_md
 
 
 # =====================================================================

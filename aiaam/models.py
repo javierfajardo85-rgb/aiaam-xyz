@@ -108,6 +108,22 @@ class PartialMAI1Response(BaseModel):
     tax_required: dict
 
 
+# =====================================================================
+# INJECTED REPOS — Registro de AGENT_INSTRUCTIONS generadas (B3)
+# =====================================================================
+
+class InjectedRepo(SQLModel, table=True):
+    """Registro de cada AGENT_INSTRUCTIONS.md generado para un tool."""
+    __tablename__ = "injected_repos"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    repo_url: str = Field(index=True)
+    aid: str = Field(index=True, unique=True)
+    license_spdx: str = Field(default="unknown")      # "MIT" | "Apache-2.0" | ...
+    instructions_md: str                               # contenido generado
+    injected_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 def tool_to_mai1(tool: Tool, include_action: bool = True) -> dict:
     """Convert DB Tool to MAI-1 response dict."""
     response = {

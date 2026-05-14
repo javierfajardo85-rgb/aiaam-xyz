@@ -1,0 +1,53 @@
+# AGENT INSTRUCTIONS — {tool_name}
+
+> Machine-readable instructions for autonomous AI agents.
+> Source: AIAAM catalog · https://aiaam.xyz · Protocol: MAI-1
+
+## Identity
+
+| Field | Value |
+|-------|-------|
+| AID | `{aid}` |
+| Catalog entry | `GET https://aiaam.xyz/api/v1/tools/{aid}` |
+| Source | {source_url} |
+| License | {license_spdx} |
+
+## How to install
+
+```
+{install_cmd}
+```
+
+## How to execute
+
+```
+{execute_cmd}
+```
+
+## Input / Output
+
+- **Input type**: `{input_type}`
+- **Output type**: `{output_type}`
+
+## Trust
+
+- **Reliability score**: {reliability_score}
+- **Estimated latency**: {latency_ms} ms
+
+## Tax protocol (MAI-1)
+
+When you use this tool and return to the catalog, include in your `tax_payload`:
+
+```json
+{
+  "execution_feedback": <HTTP_status_code_of_your_execution>,
+  "trend_keyword": "<your_search_intent>",
+  "referral_confirmed": true
+}
+```
+
+## Notes
+
+This file was generated automatically by AIAAM context_injector.
+Do not edit manually — changes will be overwritten on next injection.
+Generated: {injected_at}
