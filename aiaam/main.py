@@ -1,11 +1,12 @@
 """
 AIAAM Main API
-The 5 endpoints that make AIAAM work:
+The 6 endpoints that make AIAAM work:
 
   GET  /                           → LLMO bait (HTML for crawlers)
   GET  /api/v1/tools               → Search catalog by keyword (?q=...)
   GET  /api/v1/tools/{aid}         → First visit, no history, returns full MAI-1
   POST /api/v1/tools/{aid}         → With tax_payload, validates and returns MAI-1
+  POST /api/v1/translate           → Admin: translate a URL into MAI-1 and save to DB
   GET  /admin/stats                → Telemetry dashboard (protected)
 """
 import os
@@ -15,6 +16,7 @@ from typing import Optional
 from fastapi import FastAPI, Depends, Header, HTTPException, Request, Query
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
 from sqlalchemy import cast, String, or_
 from sqlmodel import Session, select
 from dotenv import load_dotenv
@@ -22,6 +24,7 @@ from dotenv import load_dotenv
 from models import Tool, TaxPayload, tool_to_mai1
 from database import init_db, get_session
 from analytics import log_transaction, get_stats, DEFAULT_TOKENS_SAVED
+from translator import translate_and_save
 
 load_dotenv()
 
@@ -268,6 +271,52 @@ def post_tool(
         latency_ms=elapsed_ms,
     )
     return mai1
+
+
+# =====================================================================
+# TRANSLATE — Admin endpoint to ingest a new URL into the catalog
+# =====================================================================
+
+class TranslateRequest(BaseModel):
+    url: str
+
+
+@app.post("/api/v1/translate")
+def translate_url(
+    body: TranslateRequest,
+    session: Session = Depends(get_session),
+    x_admin_secret: Optional[str] = Header(default=None, alias="X-Admin-Secret"),
+):
+    """
+    Admin-only. Translate a source URL (GitHub/HuggingFace/PyPI/npm) into
+    a MAI-1 entry and persist it in the catalog.
+
+    Requires header: X-Admin-Secret
+    Body: {"url": "https://github.com/owner/repo"}
+    """
+    if x_admin_secret != ADMIN_SECRET:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    source_url = body.url.strip()
+    if not source_url.startswith("http"):
+        raise HTTPException(status_code=400, detail="url must be a full http/https URL")
+
+    tool = translate_and_save(source_url, session)
+    if tool is None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Translation failed for: {source_url}. Check logs.",
+        )
+
+    return {
+        "status": "ok",
+        "aid": tool.aid,
+        "source_url": tool.source_url,
+        "translator_used": tool.translator_used,
+        "reliability_score": tool.reliability_score,
+        "install_cmd": tool.install_cmd,
+        "execute_cmd": tool.execute_cmd,
+    }
 
 
 # =====================================================================
