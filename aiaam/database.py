@@ -40,18 +40,19 @@ def init_db():
 def _migrate_columns():
     """
     Adds new columns to existing tables without Alembic.
-    Each ALTER TABLE is wrapped in a try/except so it is safe to run
-    repeatedly — the DB engine raises an error if the column already exists,
-    which we silently swallow.
+    Each migration runs in its own transaction so a single failure
+    (e.g. column already exists) never aborts the rest.
+    DATETIME is not a valid PostgreSQL type — use TIMESTAMP instead.
     """
     is_sqlite = DATABASE_URL.startswith("sqlite")
+    ts_type = "DATETIME" if is_sqlite else "TIMESTAMP"
     migrations = [
         # table,            column,                    sql_type
         ("tools",           "foam_score",              "INTEGER"),
         ("tools",           "verified",                "BOOLEAN"),
         ("tools",           "suggested_workflow",      "JSON"),
         ("tools",           "status",                  "VARCHAR"),
-        ("tools",           "last_verified_at",        "DATETIME"),
+        ("tools",           "last_verified_at",        ts_type),
         ("tools",           "health_score",            "FLOAT"),
         ("tools",           "affiliate_tag",           "VARCHAR"),
         ("tools",           "monetizable",             "BOOLEAN"),
@@ -61,14 +62,14 @@ def _migrate_columns():
         ("tax_logs",        "referral_confirmed",      "BOOLEAN"),
         # injected_repos se crea completa vía create_all; no necesita ALTER TABLE
     ]
-    with engine.begin() as conn:
-        for table, column, sql_type in migrations:
-            try:
+    for table, column, sql_type in migrations:
+        try:
+            with engine.begin() as conn:
                 conn.exec_driver_sql(
                     f"ALTER TABLE {table} ADD COLUMN {column} {sql_type}"
                 )
-            except Exception:
-                pass  # column already exists — safe to ignore
+        except Exception:
+            pass  # column already exists — safe to ignore
 
 
 def get_session():
