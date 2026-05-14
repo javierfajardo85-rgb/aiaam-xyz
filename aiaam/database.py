@@ -55,7 +55,7 @@ def _migrate_columns():
         ("tools",           "health_score",            "FLOAT"),
         ("tools",           "affiliate_tag",           "VARCHAR"),
         ("tools",           "monetizable",             "BOOLEAN"),
-        # health_checks se crea completa vía create_all; no necesita ALTER TABLE
+        # health_checks y request_logs se crean completas vía create_all
         ("tax_logs",        "validation_vote",         "VARCHAR"),
         ("tax_logs",        "validation_candidate_aid","VARCHAR"),
         ("tax_logs",        "referral_confirmed",      "BOOLEAN"),

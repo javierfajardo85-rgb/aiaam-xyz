@@ -151,6 +151,26 @@ class HealthCheck(SQLModel, table=True):
     error_detail: Optional[str] = Field(default=None)           # descripción del fallo
 
 
+# =====================================================================
+# REQUEST LOGS — Telemetría de cada petición HTTP (middleware)
+# =====================================================================
+
+class RequestLog(SQLModel, table=True):
+    """Registro de cada petición al servidor, independiente del tax_payload."""
+    __tablename__ = "request_logs"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    path: str = Field(index=True)
+    method: str
+    user_agent: str
+    origin_repo: Optional[str] = Field(default=None)   # X-Original-Repo header
+    referer: Optional[str] = Field(default=None)
+    latency_ms: int
+    status_code: int
+    agent_type: str = Field(default="unknown")          # elite|human|unknown
+    timestamp: datetime = Field(default_factory=datetime.utcnow, index=True)
+
+
 def tool_to_mai1(tool: Tool, include_action: bool = True) -> dict:
     """Convert DB Tool to MAI-1 response dict."""
     response = {

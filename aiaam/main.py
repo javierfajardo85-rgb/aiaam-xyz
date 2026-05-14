@@ -11,8 +11,9 @@ The 7 endpoints that make AIAAM work:
   GET  /admin/stats                → Telemetry dashboard (protected)
 """
 import os
+import re
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 from fastapi import FastAPI, Depends, Header, HTTPException, Request, Query
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
@@ -22,15 +23,59 @@ from sqlalchemy import cast, String, or_
 from sqlmodel import Session, select, func
 from dotenv import load_dotenv
 
-from models import Tool, TaxPayload, tool_to_mai1, InjectedRepo
-from database import init_db, get_session
-from analytics import log_transaction, get_stats, DEFAULT_TOKENS_SAVED
+from models import Tool, TaxPayload, tool_to_mai1, InjectedRepo, RequestLog
+from database import init_db, get_session, engine
+from analytics import log_transaction, get_stats, DEFAULT_TOKENS_SAVED, check_monetization_ratio
 from translator import translate_and_save, fetch_github_readme, translate
 from analytics import recalculate_from_votes
 
 load_dotenv()
 
-ADMIN_SECRET = os.getenv("ADMIN_SECRET", "change-this")
+ADMIN_SECRET   = os.getenv("ADMIN_SECRET", "change-this")
+ADMIN_INTEL_KEY = os.getenv("ADMIN_INTEL_KEY", ADMIN_SECRET)
+
+# ── Agent classifier ──────────────────────────────────────────────────
+_ELITE_UA = re.compile(
+    r"(github-copilot|cursor|claudebot|claude-web|anthropic-ai|gptbot|"
+    r"vscode-agent|gemini-bot|cohere-ai|perplexitybot|bingbot|ccbot)",
+    re.IGNORECASE,
+)
+_HUMAN_UA = re.compile(r"(mozilla|chrome|safari|firefox|edge|opera|webkit)", re.IGNORECASE)
+
+
+def _classify_agent(ua: str) -> str:
+    if _ELITE_UA.search(ua):
+        return "elite"
+    if _HUMAN_UA.search(ua):
+        return "human"
+    return "unknown"
+
+
+def _write_request_log(
+    path: str,
+    method: str,
+    user_agent: str,
+    origin_repo: str,
+    referer: str,
+    latency_ms: int,
+    status_code: int,
+) -> None:
+    """Fire-and-forget DB write. Called after response is sent."""
+    try:
+        with Session(engine) as session:
+            session.add(RequestLog(
+                path=path[:255],
+                method=method,
+                user_agent=user_agent[:255],
+                origin_repo=origin_repo[:255] if origin_repo != "unknown" else None,
+                referer=referer[:255] if referer != "unknown" else None,
+                latency_ms=latency_ms,
+                status_code=status_code,
+                agent_type=_classify_agent(user_agent),
+            ))
+            session.commit()
+    except Exception:
+        pass  # never break the response
 
 # =====================================================================
 # APP INIT
@@ -45,6 +90,27 @@ app = FastAPI(
 )
 
 templates = Jinja2Templates(directory="templates")
+
+
+@app.middleware("http")
+async def audit_log_middleware(request: Request, call_next):
+    ua          = request.headers.get("user-agent", "unknown")
+    origin_repo = request.headers.get("x-original-repo", "unknown")
+    referer     = request.headers.get("referer", "unknown")
+    start       = time.time()
+    response    = await call_next(request)
+    latency_ms  = int((time.time() - start) * 1000)
+    # Non-blocking: write after response is delivered
+    _write_request_log(
+        path=str(request.url.path),
+        method=request.method,
+        user_agent=ua,
+        origin_repo=origin_repo,
+        referer=referer,
+        latency_ms=latency_ms,
+        status_code=response.status_code,
+    )
+    return response
 
 
 @app.on_event("startup")
@@ -475,6 +541,93 @@ def admin_stats(
     if x_admin_secret != ADMIN_SECRET:
         raise HTTPException(status_code=403, detail="Forbidden")
     return get_stats(session)
+
+
+# =====================================================================
+# INTEL — Shadow mode, admin only, accumulates from day 1
+# =====================================================================
+
+@app.get("/api/v1/intel")
+def intel(
+    session: Session = Depends(get_session),
+    x_admin_key: Optional[str] = Header(default=None, alias="X-Admin-Key"),
+):
+    """
+    Aggregated telemetry for the last 30 days.
+    Shadow mode: not public, only accessible with X-Admin-Key.
+    Starts accumulating data from day 1 for future buyer due diligence.
+    """
+    if x_admin_key != ADMIN_INTEL_KEY:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    since = datetime.utcnow() - timedelta(days=30)
+
+    # ── Top tools by requests ─────────────────────────────────────────
+    top_tools_rows = session.exec(
+        select(RequestLog.path, func.count(RequestLog.id).label("n"))
+        .where(
+            RequestLog.timestamp >= since,
+            RequestLog.path.startswith("/api/v1/tools/"),
+        )
+        .group_by(RequestLog.path)
+        .order_by(func.count(RequestLog.id).desc())
+        .limit(10)
+    ).all()
+    top_tools = [{"path": r, "requests": n} for r, n in top_tools_rows]
+
+    # ── Agent breakdown ───────────────────────────────────────────────
+    agent_rows = session.exec(
+        select(RequestLog.agent_type, func.count(RequestLog.id).label("n"))
+        .where(RequestLog.timestamp >= since)
+        .group_by(RequestLog.agent_type)
+    ).all()
+    total_reqs = sum(n for _, n in agent_rows) or 1
+    agent_breakdown = {t: {"count": n, "pct": round(n / total_reqs, 4)} for t, n in agent_rows}
+
+    elite_count = next((n for t, n in agent_rows if t == "elite"), 0)
+    elite_ratio = round(elite_count / total_reqs, 4)
+
+    # ── Trending keywords (from TaxLog) ──────────────────────────────
+    from models import TaxLog
+    trend_rows = session.exec(
+        select(TaxLog.trend_keyword, func.count(TaxLog.id).label("n"))
+        .where(TaxLog.timestamp >= since, TaxLog.trend_keyword.is_not(None))
+        .group_by(TaxLog.trend_keyword)
+        .order_by(func.count(TaxLog.id).desc())
+        .limit(10)
+    ).all()
+    trending_keywords = [{"keyword": k, "count": n} for k, n in trend_rows]
+
+    # ── Error rate (5xx in RequestLog) ───────────────────────────────
+    total_30d = session.exec(
+        select(func.count(RequestLog.id)).where(RequestLog.timestamp >= since)
+    ).one() or 1
+    errors_30d = session.exec(
+        select(func.count(RequestLog.id))
+        .where(RequestLog.timestamp >= since, RequestLog.status_code >= 500)
+    ).one()
+    error_rate = round(errors_30d / total_30d, 4)
+
+    # ── Tokens saved total ────────────────────────────────────────────
+    tokens_saved = session.exec(
+        select(func.sum(TaxLog.tokens_saved_estimate))
+        .where(TaxLog.timestamp >= since)
+    ).one() or 0
+
+    # ── Monetization ratio ────────────────────────────────────────────
+    monetization = check_monetization_ratio(session)
+
+    return {
+        "period": "last_30_days",
+        "total_requests": total_30d,
+        "top_tools": top_tools,
+        "agent_breakdown": agent_breakdown,
+        "trending_keywords": trending_keywords,
+        "error_rate": error_rate,
+        "tokens_saved_total": tokens_saved,
+        "elite_agent_ratio": elite_ratio,
+        "monetization": monetization,
+    }
 
 
 # =====================================================================
