@@ -32,8 +32,35 @@ engine = create_engine(
 
 
 def init_db():
-    """Create all tables. Called once at startup."""
+    """Create all tables and apply incremental column migrations."""
     SQLModel.metadata.create_all(engine)
+    _migrate_columns()
+
+
+def _migrate_columns():
+    """
+    Adds new columns to existing tables without Alembic.
+    Each ALTER TABLE is wrapped in a try/except so it is safe to run
+    repeatedly — the DB engine raises an error if the column already exists,
+    which we silently swallow.
+    """
+    is_sqlite = DATABASE_URL.startswith("sqlite")
+    migrations = [
+        # table,     column,                    sql_type
+        ("tools",     "foam_score",              "INTEGER"),
+        ("tools",     "verified",                "BOOLEAN"),
+        ("tax_logs",  "validation_vote",         "VARCHAR"),
+        ("tax_logs",  "validation_candidate_aid","VARCHAR"),
+        ("tax_logs",  "referral_confirmed",      "BOOLEAN"),
+    ]
+    with engine.begin() as conn:
+        for table, column, sql_type in migrations:
+            try:
+                conn.exec_driver_sql(
+                    f"ALTER TABLE {table} ADD COLUMN {column} {sql_type}"
+                )
+            except Exception:
+                pass  # column already exists — safe to ignore
 
 
 def get_session():

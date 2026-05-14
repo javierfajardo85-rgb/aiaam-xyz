@@ -141,11 +141,16 @@ def search_tools(
     If q is empty or absent → returns top 10 by reliability_score.
     Max 10 results per query.
     """
+    # Excluye herramientas que fallaron verificación Docker (verified=False)
+    # verified=None (pendiente) o verified=True son visibles
+    not_failed = Tool.verified.is_not(False)
+
     if q and q.strip():
         pattern = f"%{q.strip().lower()}%"
         stmt = (
             select(Tool)
             .where(
+                not_failed,
                 or_(
                     Tool.aid.ilike(pattern),
                     Tool.source_platform.ilike(pattern),
@@ -160,7 +165,7 @@ def search_tools(
         )
     else:
         q = ""
-        stmt = select(Tool).order_by(Tool.reliability_score.desc()).limit(10)
+        stmt = select(Tool).where(not_failed).order_by(Tool.reliability_score.desc()).limit(10)
 
     tools = session.exec(stmt).all()
     results = []
