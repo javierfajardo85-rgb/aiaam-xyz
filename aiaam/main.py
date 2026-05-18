@@ -95,8 +95,38 @@ app = FastAPI(
 templates = Jinja2Templates(directory="templates")
 
 
+# UAs / patterns that are pure noise — blocked before they hit the router or DB
+_BLOCKED_UA_FRAGMENTS = [
+    "wp-admin/install.php",   # WordPress probes
+    "xmlrpc.php",
+    "wp-login.php",
+    "/cgi-bin/",
+    "zgrab",                  # Internet-wide scanner
+    "masscan",
+    "nikto",                  # Web vulnerability scanner
+    "sqlmap",                 # SQL injection scanner
+    "nmap",
+]
+_BLOCKED_PATH_PREFIXES = [
+    "/wp-", "/wordpress", "/xmlrpc", "/phpmyadmin", "/.env",
+    "/.git", "/admin/config", "/boaform", "/cgi-bin",
+]
+
+
 @app.middleware("http")
 async def audit_log_middleware(request: Request, call_next):
+    ua          = request.headers.get("user-agent", "unknown").lower()
+    path        = str(request.url.path).lower()
+
+    # Block known scanners / WordPress probes before touching the router
+    is_noise = (
+        any(f in ua for f in _BLOCKED_UA_FRAGMENTS) or
+        any(path.startswith(p) for p in _BLOCKED_PATH_PREFIXES)
+    )
+    if is_noise:
+        from starlette.responses import Response as _R
+        return _R(status_code=444, content=b"")   # 444 = nginx silent drop convention
+
     ua          = request.headers.get("user-agent", "unknown")
     origin_repo = request.headers.get("x-original-repo", "unknown")
     referer     = request.headers.get("referer", "unknown")
