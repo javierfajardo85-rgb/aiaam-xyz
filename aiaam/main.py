@@ -662,6 +662,95 @@ def intel(
     }
 
 
+@app.get("/api/v1/intel/daily", include_in_schema=False)
+def intel_daily(
+    session: Session = Depends(get_session),
+    x_admin_key: Optional[str] = Header(default=None, alias="X-Admin-Key"),
+    days: int = Query(default=14),
+):
+    """Daily breakdown of requests by agent_type and top UAs. Admin only."""
+    if x_admin_key != ADMIN_INTEL_KEY:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    since = datetime.utcnow() - timedelta(days=days)
+
+    # All request logs in range
+    rows = session.exec(
+        select(
+            RequestLog.timestamp,
+            RequestLog.agent_type,
+            RequestLog.user_agent,
+            RequestLog.path,
+            RequestLog.status_code,
+        )
+        .where(RequestLog.timestamp >= since)
+        .order_by(RequestLog.timestamp)
+    ).all()
+
+    # Aggregate by day
+    from collections import defaultdict
+    daily: dict = {}
+    for ts, atype, ua, path, sc in rows:
+        day = ts.strftime("%Y-%m-%d")
+        if day not in daily:
+            daily[day] = {
+                "total": 0,
+                "elite": 0,
+                "human": 0,
+                "unknown": 0,
+                "uas": defaultdict(int),
+                "paths": defaultdict(int),
+                "errors": 0,
+            }
+        d = daily[day]
+        d["total"] += 1
+        d[atype if atype in ("elite", "human", "unknown") else "unknown"] += 1
+        d["uas"][ua[:120]] += 1
+        if path.startswith("/api/v1/tools/"):
+            aid = path.replace("/api/v1/tools/", "").split("/")[0]
+            if aid:
+                d["paths"][aid] += 1
+        if sc >= 400:
+            d["errors"] += 1
+
+    # Serialise — sort UA/path dicts by count, top 10
+    result = []
+    for day in sorted(daily.keys()):
+        d = daily[day]
+        result.append({
+            "date": day,
+            "total": d["total"],
+            "elite": d["elite"],
+            "human": d["human"],
+            "unknown": d["unknown"],
+            "errors": d["errors"],
+            "top_uas": sorted(
+                [{"ua": k, "count": v} for k, v in d["uas"].items()],
+                key=lambda x: -x["count"]
+            )[:10],
+            "top_tools": sorted(
+                [{"aid": k, "count": v} for k, v in d["paths"].items()],
+                key=lambda x: -x["count"]
+            )[:10],
+        })
+
+    total_elite  = sum(d["elite"]   for d in daily.values())
+    total_human  = sum(d["human"]   for d in daily.values())
+    total_unknown= sum(d["unknown"] for d in daily.values())
+    grand_total  = total_elite + total_human + total_unknown
+
+    return {
+        "period_days": days,
+        "since": since.strftime("%Y-%m-%d"),
+        "grand_total": grand_total,
+        "elite_total": total_elite,
+        "human_total": total_human,
+        "unknown_total": total_unknown,
+        "elite_ratio": round(total_elite / grand_total, 4) if grand_total else 0,
+        "days": result,
+    }
+
+
 # =====================================================================
 # MODEL II SaaS — API keys + bulk endpoint + rate limiting
 # =====================================================================
