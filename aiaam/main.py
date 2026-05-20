@@ -10,18 +10,20 @@ The 7 endpoints that make AIAAM work:
   POST /api/v1/ingest              → Admin: save a pre-built MAI-1 directly to DB
   GET  /admin/stats                → Telemetry dashboard (protected)
 """
+import asyncio
 import json
 import os
 import re
 import threading
 import time
+import uuid
 from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import urlparse
 from fastapi import BackgroundTasks, FastAPI, Depends, Header, HTTPException, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 from sqlalchemy import cast, String, or_
@@ -293,9 +295,11 @@ def well_known_mcp(session: Session = Depends(get_session)):
             "Save up to 85% context tokens vs reading raw GitHub READMEs."
         ),
         "mcp_endpoint": "https://aiaam.xyz/mcp",
+        "mcp_sse_endpoint": "https://aiaam.xyz/mcp/sse",
         "tools_count": tools_count,
         "tools": ["search_tools", "get_tool", "get_trending"],
         "protocol": "JSON-RPC 2.0",
+        "transports": ["streamable_http", "sse"],
         "contact": "aiaam.xyz",
         "webmcp_supported": True,
         "mai1_standard": "1.0",
@@ -1731,14 +1735,16 @@ def mcp_manifest():
         "version": _MCP_SERVER_INFO["version"],
         "protocol": "JSON-RPC 2.0",
         "protocolVersion": _MCP_PROTOCOL_VERSION,
-        "endpoint": "https://aiaam.xyz/mcp",
-        "transport": "http",
+        "transports": {
+            "streamable_http": "https://aiaam.xyz/mcp",
+            "sse": "https://aiaam.xyz/mcp/sse",
+        },
         "tools": _MCP_TOOLS_LIST,
     }
 
 
 @app.post("/mcp")
-def mcp_handler(rpc: _JsonRpcRequest, session: Session = Depends(get_session)):
+async def mcp_handler(rpc: _JsonRpcRequest, session: Session = Depends(get_session)):
     """
     MCP JSON-RPC 2.0 dispatcher.
     Supported methods: initialize · tools/list · tools/call
@@ -1790,6 +1796,105 @@ def mcp_handler(rpc: _JsonRpcRequest, session: Session = Depends(get_session)):
         return _jsonrpc_err(req_id, -32601, f"unknown tool: '{tool_name}'")
 
     return _jsonrpc_err(req_id, -32601, f"method not found: '{method}'")
+
+
+# ── MCP SSE transport ──────────────────────────────────────────────────────
+# In-memory session store: session_id → asyncio.Queue (one per SSE connection)
+# Each SSE client keeps a persistent GET /mcp/sse connection open.
+# It POSTs JSON-RPC to /mcp/messages?session_id=<id>
+# and receives responses via the SSE stream.
+_sse_sessions: dict[str, asyncio.Queue] = {}
+
+
+def _process_mcp_rpc(rpc: _JsonRpcRequest, session: Session) -> dict:
+    """Core MCP JSON-RPC dispatcher — shared by HTTP and SSE transports."""
+    method = rpc.method
+    req_id = rpc.id
+    params = rpc.params or {}
+
+    if method == "initialize":
+        return _jsonrpc_ok(req_id, {
+            "protocolVersion": _MCP_PROTOCOL_VERSION,
+            "capabilities": {"tools": {}},
+            "serverInfo": _MCP_SERVER_INFO,
+        })
+    if method == "notifications/initialized":
+        return _jsonrpc_ok(req_id, {})
+    if method == "tools/list":
+        return _jsonrpc_ok(req_id, {"tools": _MCP_TOOLS_LIST})
+    if method == "tools/call":
+        tool_name = params.get("name", "")
+        arguments = params.get("arguments", {})
+        if tool_name == "search_tools":
+            query = arguments.get("query", "").strip()
+            if not query:
+                return _jsonrpc_err(req_id, -32602, "argument 'query' is required")
+            results = _mcp_search(query, arguments.get("category"), session)
+            return _jsonrpc_ok(req_id, _mcp_content({"count": len(results), "results": results}))
+        if tool_name == "get_tool":
+            aid = arguments.get("aid", "").strip()
+            if not aid:
+                return _jsonrpc_err(req_id, -32602, "argument 'aid' is required")
+            mai1 = _mcp_get(aid, session)
+            if mai1 is None:
+                return _jsonrpc_err(req_id, -32602, f"tool '{aid}' not found")
+            return _jsonrpc_ok(req_id, _mcp_content(mai1))
+        if tool_name == "get_trending":
+            limit = int(arguments.get("limit", 10))
+            results = _mcp_trending(limit, session)
+            return _jsonrpc_ok(req_id, _mcp_content({"count": len(results), "results": results}))
+        return _jsonrpc_err(req_id, -32601, f"unknown tool: '{tool_name}'")
+    return _jsonrpc_err(req_id, -32601, f"method not found: '{method}'")
+
+
+@app.get("/mcp/sse")
+async def mcp_sse_endpoint(request: Request):
+    """
+    MCP HTTP+SSE transport — for Claude Desktop and SSE-compatible MCP clients.
+    1. Client connects here with GET → receives 'endpoint' event pointing to /mcp/messages
+    2. Client POSTs JSON-RPC to /mcp/messages?session_id=<id>
+    3. Server puts response in queue → delivered here as SSE 'message' event
+    """
+    session_id = str(uuid.uuid4())
+    queue: asyncio.Queue = asyncio.Queue()
+    _sse_sessions[session_id] = queue
+    messages_url = f"https://aiaam.xyz/mcp/messages?session_id={session_id}"
+
+    async def event_stream():
+        try:
+            # Step 1: send the endpoint event so the client knows where to POST
+            yield f"event: endpoint\ndata: {messages_url}\n\n"
+            # Step 2: relay responses from queue, keep alive with pings
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    msg = await asyncio.wait_for(queue.get(), timeout=25.0)
+                    yield f"data: {json.dumps(msg)}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": ping\n\n"
+        finally:
+            _sse_sessions.pop(session_id, None)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.post("/mcp/messages")
+async def mcp_sse_messages(
+    session_id: str,
+    rpc: _JsonRpcRequest,
+    db_session: Session = Depends(get_session),
+):
+    """Receive JSON-RPC from SSE client and route response back over the stream."""
+    if session_id not in _sse_sessions:
+        raise HTTPException(status_code=404, detail="SSE session not found or expired")
+    response = _process_mcp_rpc(rpc, db_session)
+    await _sse_sessions[session_id].put(response)
+    return {"ok": True}
 
 
 if __name__ == "__main__":
