@@ -1,0 +1,25 @@
+name: B5 Tax Analyst
+
+on:
+  schedule:
+    - cron: '0 * * * *'   # every hour
+  workflow_dispatch:        # manual trigger from GitHub UI
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run B5 Tax Analyst
+        run: python3 tax_analyst.py
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          ADMIN_SECRET: ${{ secrets.ADMIN_SECRET }}
