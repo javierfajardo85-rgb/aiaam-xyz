@@ -16,8 +16,9 @@ import re
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Any, Optional
 from fastapi import FastAPI, Depends, Header, HTTPException, Request, Query
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -40,17 +41,61 @@ ADMIN_INTEL_KEY = os.getenv("ADMIN_INTEL_KEY", ADMIN_SECRET)
 # ── Agent classifier ──────────────────────────────────────────────────
 _ELITE_UA = re.compile(
     r"(github-copilot|cursor|claudebot|claude-web|anthropic-ai|gptbot|"
-    r"vscode-agent|gemini-bot|cohere-ai|perplexitybot|bingbot|ccbot)",
+    r"vscode-agent|gemini-bot|cohere-ai|perplexitybot|bingbot|ccbot|"
+    r"deepseekbot|oai-searchbot|fetcher)",
     re.IGNORECASE,
 )
-_HUMAN_UA = re.compile(r"(mozilla|chrome|safari|firefox|edge|opera|webkit)", re.IGNORECASE)
+
+# Helpers to extract browser version numbers from UA strings
+_CHROME_VER  = re.compile(r"Chrome/(\d+)\.",  re.IGNORECASE)
+_FIREFOX_VER = re.compile(r"Firefox/(\d+)\.", re.IGNORECASE)
+_IOS_VER     = re.compile(r"CPU iPhone OS (\d+)[_ ]", re.IGNORECASE)
 
 
 def _classify_agent(ua: str) -> str:
+    """
+    Three-tier classification: elite → human → unknown.
+
+    "human" requires a plausibly modern browser UA.  UAs that look like
+    browsers but carry telltale bot fingerprints are demoted to "unknown":
+      - Chrome < 100  (released before March 2022 — nobody runs these)
+      - iOS < 15      (iOS 13/14 in 2026 is a fabricated UA)
+      - Bare "Mozilla/5.0" with no further tokens
+      - Dalvik runtime (Android app framework, not a browser)
+      - python-requests, curl, axios, Go-http (programmatic clients)
+    """
     if _ELITE_UA.search(ua):
         return "elite"
-    if _HUMAN_UA.search(ua):
+
+    ua_lower = ua.strip().lower()
+
+    # Programmatic clients — not humans
+    if re.search(r"(python-requests|curl/|go-http-client|axios/|dalvik)", ua_lower):
+        return "unknown"
+
+    # Bare Mozilla/5.0 with nothing after it — common generic bot UA
+    if ua_lower in ("mozilla/5.0", "mozilla/5.0 "):
+        return "unknown"
+
+    # Old iOS — iOS 13/14 in 2026 is a fabricated UA
+    ios_m = _IOS_VER.search(ua)
+    if ios_m and int(ios_m.group(1)) < 15:
+        return "unknown"
+
+    # Old Chrome — Chrome < 100 (pre March 2022) means a spoofed bot UA
+    chrome_m = _CHROME_VER.search(ua)
+    if chrome_m:
+        return "human" if int(chrome_m.group(1)) >= 100 else "unknown"
+
+    # Old Firefox — Firefox < 100 (pre 2022)
+    firefox_m = _FIREFOX_VER.search(ua)
+    if firefox_m:
+        return "human" if int(firefox_m.group(1)) >= 100 else "unknown"
+
+    # Safari / WebKit without Chrome token (pure Safari, Edge Legacy, etc.)
+    if re.search(r"(safari|webkit|gecko|firefox|edge|opera)", ua_lower):
         return "human"
+
     return "unknown"
 
 
@@ -94,10 +139,18 @@ app = FastAPI(
 
 templates = Jinja2Templates(directory="templates")
 
+# CORS — allow browser agents (WebMCP / Chrome 149+) to call /mcp directly
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["*"],
+)
+
 
 # UAs / patterns that are pure noise — blocked before they hit the router or DB
 _BLOCKED_UA_FRAGMENTS = [
-    "wp-admin/install.php",   # WordPress probes
+    "wp-admin/install.php",   # WordPress installation probes (also appears as UA string)
     "xmlrpc.php",
     "wp-login.php",
     "/cgi-bin/",
@@ -106,6 +159,17 @@ _BLOCKED_UA_FRAGMENTS = [
     "nikto",                  # Web vulnerability scanner
     "sqlmap",                 # SQL injection scanner
     "nmap",
+    # SEO crawlers — confirmed in production traffic (2026-05-14 to 2026-05-19)
+    "mj12bot",                # Majestic SEO (76 hits 2026-05-18, escalating)
+    "baiduspider",            # Baidu crawler
+    "ahrefsbot",              # Ahrefs SEO crawler
+    "semrushbot",             # SEMrush crawler
+    "dotbot",                 # Moz crawler
+    "serpstatbot",            # SerpStat
+    "petalbot",               # Huawei search
+    # Technology-fingerprinting & API scanners
+    "builtwith",              # BuiltWith profiler (appeared 2026-05-18)
+    "netapi",                 # NetAPI v1 scanner (appeared 2026-05-19)
 ]
 _BLOCKED_PATH_PREFIXES = [
     "/wp-", "/wordpress", "/xmlrpc", "/phpmyadmin", "/.env",
@@ -551,6 +615,7 @@ class IngestRequest(BaseModel):
     health_score: Optional[float] = None
     affiliate_tag: Optional[str] = None
     monetizable: bool = False
+    task: Optional[str] = None
 
 
 @app.post("/api/v1/ingest")
@@ -584,6 +649,7 @@ def ingest_tool(
         health_score=body.health_score,
         affiliate_tag=body.affiliate_tag,
         monetizable=body.monetizable,
+        task=body.task,
     )
     session.merge(tool)
     session.commit()
@@ -778,6 +844,114 @@ def intel_daily(
         "unknown_total": total_unknown,
         "elite_ratio": round(total_elite / grand_total, 4) if grand_total else 0,
         "days": result,
+    }
+
+
+# =====================================================================
+# INTEL — Human-only deep-dive (referer, tools, browsers, timeline)
+# =====================================================================
+
+@app.get("/api/v1/intel/humans", include_in_schema=False)
+def intel_humans(
+    session: Session = Depends(get_session),
+    x_admin_key: Optional[str] = Header(default=None, alias="X-Admin-Key"),
+    days: int = Query(default=30),
+):
+    """
+    Human-visitor analytics: where they come from, what they look at,
+    which browsers they use, and how their volume evolves day by day.
+    Only requests classified as agent_type='human' are included.
+    """
+    if x_admin_key != ADMIN_INTEL_KEY:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    since = datetime.utcnow() - timedelta(days=days)
+
+    rows = session.exec(
+        select(
+            RequestLog.timestamp,
+            RequestLog.path,
+            RequestLog.user_agent,
+            RequestLog.referer,
+            RequestLog.status_code,
+        )
+        .where(
+            RequestLog.agent_type == "human",
+            RequestLog.timestamp >= since,
+        )
+        .order_by(RequestLog.timestamp)
+    ).all()
+
+    total = len(rows)
+
+    # ── Referrer breakdown ────────────────────────────────────────────
+    from collections import defaultdict, Counter
+    referer_counts: Counter = Counter()
+    for _, _, _, ref, _ in rows:
+        if ref:
+            # Normalise to domain only
+            try:
+                from urllib.parse import urlparse
+                domain = urlparse(ref).netloc or ref[:80]
+            except Exception:
+                domain = ref[:80]
+            referer_counts[domain] += 1
+        else:
+            referer_counts["(direct / no referer)"] += 1
+
+    # ── Top tools consulted by humans ─────────────────────────────────
+    tool_counts: Counter = Counter()
+    for _, path, _, _, _ in rows:
+        if path.startswith("/api/v1/tools/"):
+            aid = path.replace("/api/v1/tools/", "").strip("/").split("/")[0]
+            if aid and aid != "":
+                tool_counts[aid] += 1
+
+    # ── Browser / device breakdown ────────────────────────────────────
+    browser_counts: Counter = Counter()
+    for _, _, ua, _, _ in rows:
+        if "edg/" in ua.lower():
+            browser_counts["Edge"] += 1
+        elif "firefox/" in ua.lower():
+            browser_counts["Firefox"] += 1
+        elif "chrome/" in ua.lower() and "android" in ua.lower():
+            browser_counts["Chrome (Android)"] += 1
+        elif "chrome/" in ua.lower():
+            browser_counts["Chrome (Desktop)"] += 1
+        elif "safari/" in ua.lower() and "chrome" not in ua.lower():
+            browser_counts["Safari"] += 1
+        else:
+            browser_counts["Other"] += 1
+
+    # ── Day-by-day volume ─────────────────────────────────────────────
+    daily_counts: dict = defaultdict(int)
+    for ts, _, _, _, _ in rows:
+        daily_counts[ts.strftime("%Y-%m-%d")] += 1
+
+    # ── Error rate for humans ─────────────────────────────────────────
+    errors = sum(1 for _, _, _, _, sc in rows if sc >= 400)
+
+    return {
+        "period_days": days,
+        "since": since.strftime("%Y-%m-%d"),
+        "total_human_requests": total,
+        "error_rate": round(errors / total, 4) if total else 0,
+        "top_referrers": [
+            {"source": src, "requests": n}
+            for src, n in referer_counts.most_common(15)
+        ],
+        "top_tools": [
+            {"aid": aid, "requests": n}
+            for aid, n in tool_counts.most_common(20)
+        ],
+        "browsers": [
+            {"browser": b, "requests": n}
+            for b, n in browser_counts.most_common()
+        ],
+        "daily_volume": [
+            {"date": d, "requests": n}
+            for d, n in sorted(daily_counts.items())
+        ],
     }
 
 
@@ -1134,6 +1308,202 @@ def admin_dashboard(
 @app.get("/health")
 def health():
     return {"status": "ok", "protocol": "MAI-1", "service": "aiaam.xyz"}
+
+
+# =====================================================================
+# MCP SERVER — JSON-RPC 2.0 for Claude Code, Cursor, Claude Desktop, etc.
+# No auth — public discovery layer. aid is the string PK on tools table.
+# =====================================================================
+
+_MCP_TOOLS_LIST = [
+    {
+        "name": "search_tools",
+        "description": (
+            "Search the aiaam.xyz catalog of 100+ verified MAI-1 tool contracts by "
+            "capability or name. Returns up to 10 results saving ~85% context tokens "
+            "vs reading raw GitHub READMEs."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Tool capability or name to search (e.g. 'web scraping', 'langchain')",
+                },
+                "category": {
+                    "type": "string",
+                    "description": "Optional: filter by source platform — github | pypi | huggingface | npm",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "get_tool",
+        "description": (
+            "Returns the complete MAI-1 contract for a specific tool by its AID string "
+            "(e.g. 'langchain-v1', 'crewai-v1'). Includes reliability_score, latency_ms, "
+            "install_cmd, execute_cmd, input/output schemas."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "aid": {
+                    "type": "string",
+                    "description": "The tool's unique AID string identifier (e.g. 'langchain-v1')",
+                },
+            },
+            "required": ["aid"],
+        },
+    },
+    {
+        "name": "get_trending",
+        "description": (
+            "Returns top tools sorted by reliability_score descending. "
+            "Use to discover the most reliable and actively maintained tools in the catalog."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Number of results to return (default 10, max 20)",
+                },
+            },
+        },
+    },
+]
+
+_MCP_SERVER_INFO = {"name": "aiaam-mcp", "version": "1.0.0"}
+_MCP_PROTOCOL_VERSION = "2024-11-05"
+
+
+class _JsonRpcRequest(BaseModel):
+    jsonrpc: str = "2.0"
+    id: Optional[Any] = None
+    method: str
+    params: Optional[dict] = None
+
+
+def _jsonrpc_ok(req_id: Any, result: Any) -> dict:
+    return {"jsonrpc": "2.0", "id": req_id, "result": result}
+
+
+def _jsonrpc_err(req_id: Any, code: int, message: str) -> dict:
+    return {"jsonrpc": "2.0", "id": req_id, "error": {"code": code, "message": message}}
+
+
+def _mcp_content(data: Any) -> dict:
+    """Wrap result in the official MCP tools/call content envelope."""
+    return {"content": [{"type": "text", "text": json.dumps(data)}]}
+
+
+def _mcp_search(query: str, category: Optional[str], session: Session) -> list:
+    pattern = f"%{query.strip().lower()}%"
+    verified = Tool.verified == True
+    not_dead = or_(Tool.status.is_(None), Tool.status != "dead")
+    conditions = [
+        verified,
+        not_dead,
+        or_(
+            Tool.aid.ilike(pattern),
+            Tool.source_platform.ilike(pattern),
+            Tool.install_cmd.ilike(pattern),
+            Tool.execute_cmd.ilike(pattern),
+            cast(Tool.input_schema, String).ilike(pattern),
+            cast(Tool.output_schema, String).ilike(pattern),
+        ),
+    ]
+    if category:
+        conditions.append(Tool.source_platform.ilike(f"%{category.lower()}%"))
+    stmt = select(Tool).where(*conditions).order_by(Tool.reliability_score.desc()).limit(10)
+    return [tool_to_mai1(t, include_action=True) for t in session.exec(stmt).all()]
+
+
+def _mcp_get(aid: str, session: Session) -> Optional[dict]:
+    # aid is the string primary key column on the tools table (not an integer id)
+    tool = session.get(Tool, aid)
+    return tool_to_mai1(tool, include_action=True) if tool else None
+
+
+def _mcp_trending(limit: int, session: Session) -> list:
+    limit = max(1, min(limit, 20))
+    stmt = (
+        select(Tool)
+        .where(Tool.verified == True, or_(Tool.status.is_(None), Tool.status != "dead"))
+        .order_by(Tool.reliability_score.desc())
+        .limit(limit)
+    )
+    return [tool_to_mai1(t, include_action=True) for t in session.exec(stmt).all()]
+
+
+@app.get("/mcp")
+def mcp_manifest():
+    """MCP server capabilities manifest — quick discovery for agents and crawlers."""
+    return {
+        "name": _MCP_SERVER_INFO["name"],
+        "version": _MCP_SERVER_INFO["version"],
+        "protocol": "JSON-RPC 2.0",
+        "protocolVersion": _MCP_PROTOCOL_VERSION,
+        "endpoint": "https://aiaam.xyz/mcp",
+        "transport": "http",
+        "tools": _MCP_TOOLS_LIST,
+    }
+
+
+@app.post("/mcp")
+def mcp_handler(rpc: _JsonRpcRequest, session: Session = Depends(get_session)):
+    """
+    MCP JSON-RPC 2.0 dispatcher.
+    Supported methods: initialize · tools/list · tools/call
+    tools/call responses use the official MCP content envelope:
+      result: { content: [{ type: "text", text: "<json string>" }] }
+    """
+    method  = rpc.method
+    req_id  = rpc.id
+    params  = rpc.params or {}
+
+    # ── initialize ───────────────────────────────────────────────────
+    if method == "initialize":
+        return _jsonrpc_ok(req_id, {
+            "protocolVersion": _MCP_PROTOCOL_VERSION,
+            "capabilities": {"tools": {}},
+            "serverInfo": _MCP_SERVER_INFO,
+        })
+
+    # ── tools/list ───────────────────────────────────────────────────
+    if method == "tools/list":
+        return _jsonrpc_ok(req_id, {"tools": _MCP_TOOLS_LIST})
+
+    # ── tools/call ───────────────────────────────────────────────────
+    if method == "tools/call":
+        tool_name = params.get("name", "")
+        arguments = params.get("arguments", {})
+
+        if tool_name == "search_tools":
+            query = arguments.get("query", "").strip()
+            if not query:
+                return _jsonrpc_err(req_id, -32602, "argument 'query' is required")
+            results = _mcp_search(query, arguments.get("category"), session)
+            return _jsonrpc_ok(req_id, _mcp_content({"count": len(results), "results": results}))
+
+        if tool_name == "get_tool":
+            aid = arguments.get("aid", "").strip()
+            if not aid:
+                return _jsonrpc_err(req_id, -32602, "argument 'aid' is required")
+            mai1 = _mcp_get(aid, session)
+            if mai1 is None:
+                return _jsonrpc_err(req_id, -32602, f"tool '{aid}' not found in catalog")
+            return _jsonrpc_ok(req_id, _mcp_content(mai1))
+
+        if tool_name == "get_trending":
+            limit = int(arguments.get("limit", 10))
+            results = _mcp_trending(limit, session)
+            return _jsonrpc_ok(req_id, _mcp_content({"count": len(results), "results": results}))
+
+        return _jsonrpc_err(req_id, -32601, f"unknown tool: '{tool_name}'")
+
+    return _jsonrpc_err(req_id, -32601, f"method not found: '{method}'")
 
 
 if __name__ == "__main__":
