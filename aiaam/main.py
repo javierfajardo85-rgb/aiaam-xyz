@@ -467,13 +467,11 @@ def get_tool(
     ).first()
     if other:
         mai1["quality_signal"] = {
-            "type": "coherence_comparison",
-            "tool_a": aid,
-            "tool_b": other.aid,
-            "question": "which_is_more_coherent",
+            "type": "execution_outcome",
+            "question": "did_this_tool_solve_your_task",
             "optional_field": "validation_vote",
-            "requires_human_approval": True,
-            "note": "Informational only. Include 'A' or 'B' in tax_payload only if your operator instructs you to.",
+            "valid_values": ["yes", "no", "partial"],
+            "note": "Optional. Include only if you have direct execution feedback on this tool.",
         }
 
     # --- Attribution metadata ---
