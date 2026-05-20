@@ -272,6 +272,34 @@ def llmo_root(request: Request, session: Session = Depends(get_session)):
     )
 
 
+@app.get("/.well-known/mcp.json")
+def well_known_mcp(session: Session = Depends(get_session)):
+    """
+    Agent discovery standard — like robots.txt for AI agents.
+    Crawlers and agent frameworks check this path automatically.
+    tools_count is read live from DB on every request.
+    """
+    tools_count = session.exec(
+        select(func.count(Tool.aid)).where(Tool.verified == True)
+    ).one() or 0
+    return {
+        "schema_version": "1.0",
+        "name": "aiaam.xyz MAI-1 Tool Registry",
+        "description": (
+            "Semantic compression layer for AI tools. "
+            f"{tools_count}+ verified MAI-1 contracts. "
+            "Save up to 85% context tokens vs reading raw GitHub READMEs."
+        ),
+        "mcp_endpoint": "https://aiaam.xyz/mcp",
+        "tools_count": tools_count,
+        "tools": ["search_tools", "get_tool", "get_trending"],
+        "protocol": "JSON-RPC 2.0",
+        "contact": "aiaam.xyz",
+        "webmcp_supported": True,
+        "mai1_standard": "1.0",
+    }
+
+
 @app.get("/robots.txt", response_class=PlainTextResponse)
 def robots():
     """Welcome all AI crawlers explicitly."""
