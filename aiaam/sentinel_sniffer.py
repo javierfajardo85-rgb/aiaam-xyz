@@ -1,9 +1,10 @@
 """
 AIAAM Sentinel Sniffer — Agente B1
 Detecta repos GitHub con alto crecimiento de estrellas y los añade al catálogo.
+También descubre specs OpenAPI públicas desde APIs.guru.
 
-Coste LLM: CERO en la detección (GitHub API pura).
-Si foam_score >= FOAM_THRESHOLD → llama a translator con priority_high=True (Sonnet).
+Coste LLM: CERO en modo --mode github (GitHub API pura).
+           Haiku en modo --mode openapi (max 10 compilaciones/día, hard limit).
 
 Pilares FOAM evaluados (0-6):
   1. Velocidad de estrellas: >500 en <24h  OR  >2000 en <7 días
@@ -14,9 +15,11 @@ Pilares FOAM evaluados (0-6):
   6. Edad: menos de 30 días de vida
 
 Uso:
-    python3 sentinel_sniffer.py             # single run
-    python3 sentinel_sniffer.py --dry-run   # preview sin traducir
-    python3 sentinel_sniffer.py --loop      # bucle cada 4h
+    python3 sentinel_sniffer.py --mode github             # default (GitHub trending)
+    python3 sentinel_sniffer.py --mode github --dry-run   # preview sin traducir
+    python3 sentinel_sniffer.py --mode github --loop      # bucle cada 4h
+    python3 sentinel_sniffer.py --mode openapi --dry-run  # preview 20 candidatos
+    python3 sentinel_sniffer.py --mode openapi --limit 3  # compila máx 3
 """
 
 import os
@@ -28,7 +31,7 @@ from pathlib import Path
 from typing import Optional
 
 import httpx
-from sqlmodel import Session, select
+from sqlmodel import Session, select, func
 from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -238,16 +241,273 @@ def run(dry_run: bool = False) -> list[dict]:
 
 
 # =====================================================================
+# OPENAPI DISCOVERY — APIs.guru → CompiledAPIs (--mode openapi)
+# =====================================================================
+
+APIS_GURU_URL          = "https://api.apis.guru/v2/list.json"
+TARGET_CATEGORIES      = {"financial", "analytics", "developer_tools", "ecommerce", "location", "payment", "transport", "security", "machine_learning", "search"}
+MAX_CANDIDATES         = 20
+MAX_DAILY_COMPILATIONS = 10          # hard cost limit — NEVER exceed
+MAX_SPEC_BYTES         = 500_000     # 500KB — truncation would destroy quality
+MONTHS_RECENCY_DAYS    = 48 * 30    # APIs.guru tops out at Apr 2023 — 48 months captures all 2022-2023 entries
+
+
+def _count_today_compilations(session: Session) -> int:
+    """Count CompiledAPIs records inserted today (UTC). SQLite + PostgreSQL safe."""
+    from models import CompiledAPI
+    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    return session.exec(
+        select(func.count(CompiledAPI.id)).where(CompiledAPI.compiled_at >= today_start)
+    ).one() or 0
+
+
+def _already_compiled(session: Session, swagger_url: str) -> bool:
+    """True if this spec URL is already in CompiledAPIs."""
+    from models import CompiledAPI
+    return session.exec(
+        select(CompiledAPI).where(CompiledAPI.source_url == swagger_url)
+    ).first() is not None
+
+
+def _check_spec_url(swagger_url: str) -> tuple[bool, int]:
+    """
+    HEAD request to verify spec is accessible and not too large.
+    Returns (accessible, size_bytes). size=0 if content-length absent.
+    """
+    try:
+        r = httpx.head(swagger_url, follow_redirects=True, timeout=10)
+        if r.status_code != 200:
+            return False, 0
+        size = int(r.headers.get("content-length", 0))
+        return True, size
+    except Exception:
+        return False, 0
+
+
+def fetch_openapi_candidates(session: Session) -> tuple[int, list[dict]]:
+    """
+    Pull APIs.guru catalog, apply all quality filters, return
+    (total_in_catalog, filtered_candidates_up_to_MAX_CANDIDATES).
+    Zero LLM calls.
+    """
+    print(f"[sentinel] fetching APIs.guru catalog...", end=" ", flush=True)
+    try:
+        r = httpx.get(APIS_GURU_URL, timeout=30)
+        r.raise_for_status()
+        catalog = r.json()
+    except Exception as exc:
+        print(f"FAIL — {exc}")
+        return 0, []
+    total_in_catalog = len(catalog)
+    print(f"{total_in_catalog} APIs found")
+
+    cutoff = datetime.utcnow() - timedelta(days=MONTHS_RECENCY_DAYS)
+    candidates: list[dict] = []
+    skipped_category = skipped_deprecated = skipped_old = skipped_compiled = 0
+
+    for api_key, api_data in catalog.items():
+        versions   = api_data.get("versions", {})
+        preferred  = api_data.get("preferred", "")
+        ver_data   = versions.get(preferred) or (next(iter(versions.values())) if versions else {})
+        if not ver_data:
+            continue
+
+        info       = ver_data.get("info", {})
+        provider   = info.get("x-providerName", api_key).lower()
+
+        # EXCLUDE deprecated
+        if "deprecated" in provider:
+            skipped_deprecated += 1
+            continue
+
+        # INCLUDE only target categories (APIs.guru stores them in x-apisguru-categories)
+        cats = info.get("x-apisguru-categories", [])
+        category_match = next((c.lower() for c in cats if c.lower() in TARGET_CATEGORIES), None)
+        if not category_match:
+            skipped_category += 1
+            continue
+
+        # INCLUDE only APIs updated in last 18 months
+        updated_str = ver_data.get("updated", "")
+        if updated_str:
+            try:
+                updated_dt = datetime.fromisoformat(
+                    updated_str.replace("Z", "+00:00")
+                ).replace(tzinfo=None)
+                if updated_dt < cutoff:
+                    skipped_old += 1
+                    continue
+            except ValueError:
+                pass
+
+        swagger_url = ver_data.get("swaggerUrl", "")
+        if not swagger_url:
+            continue
+
+        # EXCLUDE already compiled
+        if _already_compiled(session, swagger_url):
+            skipped_compiled += 1
+            continue
+
+        candidates.append({
+            "api_key":      api_key,
+            "provider":     provider,
+            "swagger_url":  swagger_url,
+            "category":     category_match,
+            "updated":      updated_str[:10],
+        })
+
+        # Over-collect then trim after accessibility check
+        if len(candidates) >= MAX_CANDIDATES * 4:
+            break
+
+    print(
+        f"[sentinel] pre-filter: {len(candidates)} pass "
+        f"(skipped: {skipped_category} no-category, {skipped_deprecated} deprecated, "
+        f"{skipped_old} stale, {skipped_compiled} already-compiled)"
+    )
+    print(f"[sentinel] checking accessibility (HEAD) for up to {MAX_CANDIDATES * 4} candidates...")
+
+    valid: list[dict] = []
+    for c in candidates:
+        accessible, size = _check_spec_url(c["swagger_url"])
+        if not accessible:
+            continue
+        if size > MAX_SPEC_BYTES:
+            print(f"    SKIP {c['api_key']} — {size // 1024}KB > 500KB limit")
+            continue
+        valid.append(c)
+        if len(valid) >= MAX_CANDIDATES:
+            break
+        time.sleep(0.15)  # courtesy between HEAD requests
+
+    return total_in_catalog, valid
+
+
+def run_openapi(dry_run: bool = False, limit: int = MAX_DAILY_COMPILATIONS) -> dict:
+    """
+    OpenAPI discovery mode:
+      Step 1 — discover & filter from APIs.guru (max 20 candidates)
+      Step 2 — compile via Haiku (respects 10/day hard limit)
+      Step 3 — print summary report
+    """
+    init_db()
+    _t0 = time.time()
+    ts  = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    print(f"\n[sentinel] {ts} — mode=openapi{' [DRY-RUN]' if dry_run else ''}")
+
+    results = {
+        "total_in_catalog": 0, "passed_filter": 0,
+        "compiled": 0, "failed": 0,
+        "daily_used": 0, "daily_remaining": MAX_DAILY_COMPILATIONS,
+    }
+
+    with Session(engine) as session:
+        # ── Pre-check daily budget ──────────────────────────────────
+        today_count      = _count_today_compilations(session)
+        daily_remaining  = MAX_DAILY_COMPILATIONS - today_count
+        results["daily_used"]      = today_count
+        results["daily_remaining"] = daily_remaining
+
+        if daily_remaining <= 0:
+            print(
+                f"[sentinel] Daily limit reached "
+                f"({MAX_DAILY_COMPILATIONS}/{MAX_DAILY_COMPILATIONS}). "
+                f"Skipping. Next window: tomorrow."
+            )
+            return results
+
+        compile_budget = min(limit, daily_remaining)
+
+        # ── Step 1: Discover ─────────────────────────────────────────
+        total_in_catalog, candidates = fetch_openapi_candidates(session)
+        results["total_in_catalog"] = total_in_catalog
+        results["passed_filter"]    = len(candidates)
+
+        print(f"\n[sentinel] {len(candidates)} candidates passed all filters\n")
+
+        if not candidates:
+            print("[sentinel] Nothing to compile.")
+            return results
+
+        # ── Dry-run: show candidates and stop ─────────────────────────
+        if dry_run:
+            print(f"{'─'*70}")
+            print(f"  {'#':<4} {'API Key':<38} {'Cat':<12} {'Updated':<12}")
+            print(f"{'─'*70}")
+            for i, c in enumerate(candidates, 1):
+                print(f"  {i:<4} {c['api_key']:<38} {c['category']:<12} {c['updated']:<12}")
+                print(f"       {c['swagger_url'][:65]}")
+            print(f"{'─'*70}")
+            print(f"  Total candidates: {len(candidates)} | Daily budget: {daily_remaining}/{MAX_DAILY_COMPILATIONS}")
+            return results
+
+        # ── Step 2: Compile (within budget) ──────────────────────────
+        from compiler.openapi_compiler import compile_from_url, save_to_db
+
+        print(f"[sentinel] compiling up to {compile_budget} specs (budget: {daily_remaining} remaining today)\n")
+
+        for c in candidates[:compile_budget]:
+            print(f"  → {c['api_key']}  ({c['category']})")
+            print(f"    {c['swagger_url'][:70]}")
+            try:
+                result = compile_from_url(c["swagger_url"])
+                save_to_db(result, category=c["category"])
+                results["compiled"] += 1
+                print(f"    OK — {result['tokens_used']} tokens · truncated={result['was_truncated']}")
+            except Exception as exc:
+                results["failed"] += 1
+                print(f"    FAIL — {exc}")
+            print()
+            time.sleep(3)  # rate-limit protection between compilations
+
+        results["daily_remaining"] = MAX_DAILY_COMPILATIONS - today_count - results["compiled"]
+
+    # ── Step 3: Summary ──────────────────────────────────────────────
+    elapsed = int(time.time() - _t0)
+    print(f"{'─'*55}")
+    print(f"  OpenAPI Discovery Summary")
+    print(f"{'─'*55}")
+    print(f"  Specs in APIs.guru catalog : {results['total_in_catalog']}")
+    print(f"  Passed quality filters     : {results['passed_filter']}")
+    print(f"  Compiled successfully      : {results['compiled']}")
+    print(f"  Failed                     : {results['failed']}")
+    print(f"  Daily budget remaining     : {results['daily_remaining']}/{MAX_DAILY_COMPILATIONS}")
+    print(f"  Review pending at          : GET /admin/compiled-apis?verified=false")
+    print(f"{'─'*55}")
+
+    if not dry_run:
+        log_agent_run(
+            agent_code="B1", agent_name="Sentinel",
+            items_processed=results["passed_filter"],
+            items_new=results["compiled"], items_failed=results["failed"],
+            duration_s=elapsed,
+            summary=f"openapi: discovered={results['passed_filter']} compiled={results['compiled']}",
+        )
+    return results
+
+
+# =====================================================================
 # CLI
 # =====================================================================
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="AIAAM Sentinel Sniffer")
-    parser.add_argument("--dry-run", action="store_true", help="Preview sin traducir ni escribir en DB")
-    parser.add_argument("--loop",    action="store_true", help=f"Ejecuta en bucle cada {LOOP_INTERVAL_H}h")
+    parser.add_argument(
+        "--mode", choices=["github", "openapi"], default="github",
+        help="github = GitHub trending repos (default) | openapi = APIs.guru discovery",
+    )
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Preview without writing to DB or calling LLMs")
+    parser.add_argument("--loop",    action="store_true",
+                        help=f"(github mode only) Run in loop every {LOOP_INTERVAL_H}h")
+    parser.add_argument("--limit",   type=int, default=MAX_DAILY_COMPILATIONS,
+                        help="(openapi mode) Max specs to compile this run (default: 10)")
     args = parser.parse_args()
 
-    if args.loop:
+    if args.mode == "openapi":
+        run_openapi(dry_run=args.dry_run, limit=args.limit)
+    elif args.loop:
         print(f"[sentinel] modo loop — ejecutando cada {LOOP_INTERVAL_H}h")
         while True:
             run(dry_run=args.dry_run)

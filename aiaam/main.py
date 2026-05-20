@@ -1499,7 +1499,7 @@ def service_status(service_name: str, session: Session = Depends(get_session)):
 
 @app.get("/api/v1/services/{service_name}/mai-api.json")
 def service_manifest(service_name: str, session: Session = Depends(get_session)):
-    """Returns the compiled MAI-API manifest JSON, or 404 if not ready."""
+    """Returns the compiled MAI-API manifest JSON, or 404 if not ready or not verified."""
     record = session.exec(
         select(CompiledAPI).where(CompiledAPI.service_name == service_name)
     ).first()
@@ -1512,7 +1512,80 @@ def service_manifest(service_name: str, session: Session = Depends(get_session))
             status_code=404,
             detail=f"No compiled manifest for '{service_name}'. Submit via POST /api/v1/submit-api first.",
         )
+    if not record.verified:
+        raise HTTPException(status_code=404, detail={"error": "not_ready"})
     return record.manifest
+
+
+# =====================================================================
+# ADMIN — Compiled APIs management
+# =====================================================================
+
+@app.get("/admin/compiled-apis")
+def admin_list_compiled_apis(
+    verified: Optional[str] = Query("all", pattern="^(true|false|all)$"),
+    x_admin_secret: Optional[str] = Header(None),
+    session: Session = Depends(get_session),
+):
+    """List compiled APIs with manifest preview (first 3 intents). Requires X-Admin-Secret."""
+    if x_admin_secret != ADMIN_SECRET:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    q = select(CompiledAPI).order_by(CompiledAPI.compiled_at.desc())
+    if verified == "true":
+        q = q.where(CompiledAPI.verified == True)
+    elif verified == "false":
+        q = q.where(CompiledAPI.verified == False)
+
+    records = session.exec(q).all()
+
+    def _preview(record: CompiledAPI) -> dict:
+        manifest = record.manifest or {}
+        intents = manifest.get("intents", [])[:3]
+        return {
+            "id": record.id,
+            "service_name": record.service_name,
+            "category": record.category,
+            "source_url": record.source_url,
+            "verified": record.verified,
+            "reliability_score": record.reliability_score,
+            "tokens_used": record.tokens_used,
+            "compiled_at": record.compiled_at.isoformat(),
+            "manifest_preview": {
+                "identity": manifest.get("identity"),
+                "intents_count": len(manifest.get("intents", [])),
+                "first_3_intents": intents,
+            },
+        }
+
+    return {"count": len(records), "items": [_preview(r) for r in records]}
+
+
+@app.patch("/admin/compiled-apis/{compiled_id}/verify")
+def admin_verify_compiled_api(
+    compiled_id: int,
+    x_admin_secret: Optional[str] = Header(None),
+    session: Session = Depends(get_session),
+):
+    """Set verified=True on a CompiledAPI record. Requires X-Admin-Secret."""
+    if x_admin_secret != ADMIN_SECRET:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    record = session.get(CompiledAPI, compiled_id)
+    if not record:
+        raise HTTPException(status_code=404, detail=f"CompiledAPI id={compiled_id} not found")
+
+    record.verified = True
+    session.add(record)
+    session.commit()
+    session.refresh(record)
+    return {
+        "ok": True,
+        "id": record.id,
+        "service_name": record.service_name,
+        "verified": record.verified,
+        "manifest_url": f"https://aiaam.xyz/api/v1/services/{record.service_name}/mai-api.json",
+    }
 
 
 # =====================================================================
