@@ -25,5 +25,5 @@ jobs:
       - name: Run B5 Tax Analyst
         run: python3 tax_analyst.py
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.DATABASE }}
           ADMIN_SECRET: ${{ secrets.ADMIN_SECRET }}
