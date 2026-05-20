@@ -335,10 +335,11 @@ def robots():
 @app.get("/api/v1/tools")
 def search_tools(
     q: Optional[str] = Query(default=None, description="Keyword to search across MAI-1 catalog"),
+    category: Optional[str] = Query(default=None, description="Filter by source platform: github | pypi | huggingface | npm"),
     session: Session = Depends(get_session),
 ):
     """
-    Search the MAI-1 catalog by keyword.
+    Search the MAI-1 catalog by keyword and optional category.
 
     Searches across: aid, source_platform, install_cmd, execute_cmd,
     input_schema (JSON), output_schema (JSON).
@@ -349,33 +350,29 @@ def search_tools(
     If q is empty or absent → returns top 10 by reliability_score.
     Max 10 results per query.
     """
-    # Solo herramientas verificadas (triple sandbox pass) y no marcadas dead
     verified = Tool.verified == True
     not_dead = or_(Tool.status.is_(None), Tool.status != "dead")
+    conditions = [verified, not_dead]
 
     if q and q.strip():
         pattern = f"%{q.strip().lower()}%"
-        stmt = (
-            select(Tool)
-            .where(
-                verified,
-                not_dead,
-                or_(
-                    Tool.aid.ilike(pattern),
-                    Tool.source_platform.ilike(pattern),
-                    Tool.install_cmd.ilike(pattern),
-                    Tool.execute_cmd.ilike(pattern),
-                    cast(Tool.input_schema,  String).ilike(pattern),
-                    cast(Tool.output_schema, String).ilike(pattern),
-                )
+        conditions.append(
+            or_(
+                Tool.aid.ilike(pattern),
+                Tool.source_platform.ilike(pattern),
+                Tool.install_cmd.ilike(pattern),
+                Tool.execute_cmd.ilike(pattern),
+                cast(Tool.input_schema,  String).ilike(pattern),
+                cast(Tool.output_schema, String).ilike(pattern),
             )
-            .order_by(Tool.reliability_score.desc())
-            .limit(10)
         )
     else:
         q = ""
-        stmt = select(Tool).where(verified, not_dead).order_by(Tool.reliability_score.desc()).limit(10)
 
+    if category and category.strip():
+        conditions.append(Tool.source_platform.ilike(f"%{category.strip().lower()}%"))
+
+    stmt = select(Tool).where(*conditions).order_by(Tool.reliability_score.desc()).limit(10)
     tools = session.exec(stmt).all()
     results = []
     for t in tools:
@@ -385,10 +382,30 @@ def search_tools(
 
     return {
         "query": q,
+        "category": category or "",
         "count": len(results),
         "results": results,
         "note": "action block (install_cmd, execute_cmd) requires POST /api/v1/tools/{aid} with tax_payload",
     }
+
+
+# NOTE: /trending must be defined BEFORE /{aid} to avoid FastAPI treating
+# the literal string "trending" as an aid path parameter.
+@app.get("/api/v1/tools/trending")
+def trending_tools(
+    limit: int = Query(default=10, ge=1, le=20, description="Number of results (max 20)"),
+    session: Session = Depends(get_session),
+):
+    """Top tools by reliability_score DESC. Used by WebMCP handlers and MCP clients."""
+    stmt = (
+        select(Tool)
+        .where(Tool.verified == True, or_(Tool.status.is_(None), Tool.status != "dead"))
+        .order_by(Tool.reliability_score.desc())
+        .limit(limit)
+    )
+    tools = session.exec(stmt).all()
+    results = [tool_to_mai1(t, include_action=True) for t in tools]
+    return {"count": len(results), "results": results}
 
 
 # =====================================================================

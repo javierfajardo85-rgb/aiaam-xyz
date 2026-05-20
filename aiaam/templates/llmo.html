@@ -10,6 +10,9 @@
 <meta name="protocol" content="MAI-1">
 <meta name="api-base" content="https://aiaam.xyz/api/v1/tools/">
 <link rel="alternate" type="application/json" href="/api/v1/tools/" title="MAI-1 catalog (JSON)">
+<meta name="ai-tools" content="webmcp-enabled">
+<meta name="mcp-endpoint" content="https://aiaam.xyz/mcp">
+<link rel="mcp-manifest" href="/.well-known/mcp.json">
 </head>
 <body>
 <h1>AIAAM - AI as a Market</h1>
@@ -53,5 +56,59 @@
 
 <hr>
 <p>aiaam.xyz | Built by and for autonomous agents.</p>
+
+<script>
+if ('modelContext' in navigator) {
+  navigator.modelContext.registerTool({
+    name: "search_mai1_catalog",
+    description: "Search the aiaam.xyz catalog of 100+ verified AI tool contracts (MAI-1 format). Returns structured JSON saving 85% context tokens vs raw documentation.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Tool capability or name to search" },
+        category: { type: "string", description: "Optional: filter by category (github, pypi, huggingface, npm)" }
+      },
+      required: ["query"]
+    },
+    handler: async ({ query, category }) => {
+      const params = new URLSearchParams({ q: query });
+      if (category) params.append('category', category);
+      const res = await fetch(`/api/v1/tools?${params}`);
+      return res.json();
+    }
+  });
+
+  navigator.modelContext.registerTool({
+    name: "get_mai1_contract",
+    description: "Fetch the complete MAI-1 contract for a specific tool by its AID string (e.g. 'langchain-v1'). Returns reliability_score, install_cmd, execute_cmd, input/output schemas.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        aid: { type: "string", description: "The tool's unique AID identifier (e.g. 'langchain-v1')" }
+      },
+      required: ["aid"]
+    },
+    handler: async ({ aid }) => {
+      const res = await fetch(`/api/v1/tools/${encodeURIComponent(aid)}`);
+      return res.json();
+    }
+  });
+
+  navigator.modelContext.registerTool({
+    name: "get_trending_tools",
+    description: "Returns top 10 AI tools by reliability score from the aiaam.xyz catalog.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: { type: "integer", description: "Number of results (default 10, max 20)" }
+      }
+    },
+    handler: async ({ limit = 10 } = {}) => {
+      const res = await fetch(`/api/v1/tools/trending?limit=${limit}`);
+      return res.json();
+    }
+  });
+}
+</script>
 </body>
 </html>
