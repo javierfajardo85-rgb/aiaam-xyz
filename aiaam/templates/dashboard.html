@@ -365,7 +365,7 @@ body { font-family: var(--font); background: var(--bg); color: var(--text1); fon
                 {% if ag.ran_at %}
                 <span class="tl-count">{{ ag.count }}<span class="tl-unit"> {{ ag.unit }}</span></span>
                 {% else %}
-                <span class="tl-count standby">Standby / Scanning</span>
+                <span class="tl-count standby">Local agent — logs not synced to Railway</span>
                 {% endif %}
               </div>
               <div class="tl-desc">{{ ag.desc }}
@@ -483,22 +483,35 @@ const trafficChart = new Chart(trafficCtx, {
   type: 'line',
   data: {
     labels: traffic7d.labels,
-    datasets: [{
-      label: 'Requests',
-      data: traffic7d.data,
-      borderColor: solid(P.blue),
-      backgroundColor: muted(P.blue),
-      borderWidth: 2,
-      fill: true,
-      tension: 0.4,
-      pointRadius: 3,
-      pointBackgroundColor: solid(P.blue),
-    }]
+    datasets: [
+      {
+        label: 'All requests',
+        data: traffic7d.data,
+        borderColor: 'rgba(142,142,147,0.5)',
+        backgroundColor: 'rgba(142,142,147,0.07)',
+        borderWidth: 1.5,
+        fill: true,
+        tension: 0.4,
+        pointRadius: 2,
+        pointBackgroundColor: 'rgba(142,142,147,0.5)',
+      },
+      {
+        label: 'API calls (real)',
+        data: traffic7d.real,
+        borderColor: solid(P.blue),
+        backgroundColor: muted(P.blue),
+        borderWidth: 2,
+        fill: true,
+        tension: 0.4,
+        pointRadius: 3,
+        pointBackgroundColor: solid(P.blue),
+      }
+    ]
   },
   options: {
     responsive: true,
     maintainAspectRatio: false,
-    plugins: { legend: { display: false } },
+    plugins: { legend: { display: true, position: 'top', labels: { boxWidth: 12, font: { size: 11 } } } },
     scales: {
       x: { grid: { display: false }, border: { display: false } },
       y: { grid: { color: 'rgba(0,0,0,.04)' }, border: { display: false }, ticks: { stepSize: 1 }, beginAtZero: true }
@@ -511,8 +524,9 @@ function switchTraffic(mode, btn) {
   document.querySelectorAll('#traffic-toggle button').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   const d = mode === '7d' ? traffic7d : traffic24h;
-  trafficChart.data.labels   = d.labels;
-  trafficChart.data.datasets[0].data = d.data;
+  trafficChart.data.labels              = d.labels;
+  trafficChart.data.datasets[0].data   = d.data;
+  trafficChart.data.datasets[1].data   = d.real;
   trafficChart.update();
 }
 

@@ -1112,24 +1112,32 @@ def _build_dashboard_ctx(session: Session) -> dict:
     req_7d          = session.exec(select(func.count(RequestLog.id)).where(RequestLog.timestamp >= s7d)).one() or 0
     tokens_saved    = req_7d * 4800  # est: MAI-1 ~200 tokens vs README ~5000 tokens
 
-    # Traffic timelines — fetch raw timestamps, aggregate in Python
-    raw_ts = session.exec(
-        select(RequestLog.timestamp)
+    # Traffic timelines — fetch raw timestamps + paths, aggregate in Python
+    _MEANINGFUL_PREFIXES = ("/api/", "/mcp", "/.well-known/")
+    raw_rows = session.exec(
+        select(RequestLog.timestamp, RequestLog.path)
         .where(RequestLog.timestamp >= s7d)
     ).all()
 
     daily_keys = [(now - timedelta(days=6 - i)).strftime("%b %d") for i in range(7)]
     daily      = {k: 0 for k in daily_keys}
+    daily_real = {k: 0 for k in daily_keys}
     hourly_keys= [(now - timedelta(hours=23 - i)).strftime("%H:00") for i in range(24)]
     hourly     = {k: 0 for k in hourly_keys}
-    for ts in raw_ts:
+    hourly_real= {k: 0 for k in hourly_keys}
+    for ts, path in raw_rows:
+        is_real = any(path.startswith(p) for p in _MEANINGFUL_PREFIXES)
         dk = ts.strftime("%b %d")
         if dk in daily:
             daily[dk] += 1
+            if is_real:
+                daily_real[dk] += 1
         if ts >= s24h:
             hk = ts.strftime("%H:00")
             if hk in hourly:
                 hourly[hk] += 1
+                if is_real:
+                    hourly_real[hk] += 1
 
     # Top 10 tools (7d) — exclude /instructions sub-paths
     top_rows = session.exec(
@@ -1317,8 +1325,8 @@ def _build_dashboard_ctx(session: Session) -> dict:
         "elite_count":          elite_count,
         "human_count":          human_count,
         "unknown_count":        unknown_count,
-        "traffic_7d":           json.dumps({"labels": list(daily.keys()),  "data": list(daily.values())}),
-        "traffic_24h":          json.dumps({"labels": list(hourly.keys()), "data": list(hourly.values())}),
+        "traffic_7d":           json.dumps({"labels": list(daily.keys()),  "data": list(daily.values()), "real": list(daily_real.values())}),
+        "traffic_24h":          json.dumps({"labels": list(hourly.keys()), "data": list(hourly.values()), "real": list(hourly_real.values())}),
         "top_tools_json":       json.dumps(top_tools),
         "elite_adoption_json":  json.dumps(elite_adoption),
         "llm_bg_json":          json.dumps(llm_bg),
