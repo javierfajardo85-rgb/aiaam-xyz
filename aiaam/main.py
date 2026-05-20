@@ -13,21 +13,23 @@ The 7 endpoints that make AIAAM work:
 import json
 import os
 import re
+import threading
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any, Optional
-from fastapi import FastAPI, Depends, Header, HTTPException, Request, Query
+from urllib.parse import urlparse
+from fastapi import BackgroundTasks, FastAPI, Depends, Header, HTTPException, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, HttpUrl, field_validator
 from sqlalchemy import cast, String, or_
 from sqlmodel import Session, select, func
 from dotenv import load_dotenv
 
 import secrets as _secrets
-from models import Tool, TaxPayload, tool_to_mai1, InjectedRepo, RequestLog, TaxLog, HealthCheck, AgentLog, ApiKey
+from models import Tool, TaxPayload, tool_to_mai1, InjectedRepo, RequestLog, TaxLog, HealthCheck, AgentLog, ApiKey, CompiledAPI
 from database import init_db, get_session, engine
 from analytics import log_transaction, get_stats, DEFAULT_TOKENS_SAVED, check_monetization_ratio
 from translator import translate_and_save, fetch_github_readme, translate
@@ -1353,6 +1355,164 @@ def admin_dashboard(
 @app.get("/health")
 def health():
     return {"status": "ok", "protocol": "MAI-1", "service": "aiaam.xyz"}
+
+
+# =====================================================================
+# SUBMIT API — Public OpenAPI→MAI-API compilation with abuse protection
+# =====================================================================
+
+# ── In-memory rate limiter ────────────────────────────────────────────
+# Survives within a single process; resets on Railway deploy (acceptable for MVP).
+_rl_lock        = threading.Lock()
+_ip_timestamps: dict[str, list] = defaultdict(list)
+_daily_count    = [0]
+_daily_reset_at = [datetime.utcnow()]
+
+_MAX_PER_IP_HOUR = 3
+_MAX_DAILY_TOTAL = 20
+
+
+def _rate_limit_check(ip: str) -> tuple[bool, str]:
+    now = datetime.utcnow()
+    with _rl_lock:
+        # Reset daily counter at midnight UTC
+        if (now - _daily_reset_at[0]).days >= 1:
+            _daily_count[0]    = 0
+            _daily_reset_at[0] = now
+        # Global daily cap
+        if _daily_count[0] >= _MAX_DAILY_TOTAL:
+            return False, (
+                "Daily compilation limit reached. "
+                "Resets at midnight UTC. Contact aiaam.xyz for bulk access."
+            )
+        # Per-IP hourly cap
+        cutoff = now - timedelta(hours=1)
+        _ip_timestamps[ip] = [t for t in _ip_timestamps[ip] if t > cutoff]
+        if len(_ip_timestamps[ip]) >= _MAX_PER_IP_HOUR:
+            return False, f"Rate limit: max {_MAX_PER_IP_HOUR} compilations per IP per hour."
+        # Record and allow
+        _ip_timestamps[ip].append(now)
+        _daily_count[0] += 1
+        return True, ""
+
+
+# ── SSRF-safe request model ───────────────────────────────────────────
+_SSRF_BLOCKLIST = [
+    "localhost", "127.", "192.168.", "10.", "172.16.", "172.17.",
+    "0.0.0.0", "::1", "internal", "railway.app", "railwayapp.com",
+    "metadata.google", "169.254.",
+]
+
+
+class SubmitAPIRequest(BaseModel):
+    openapi_url: HttpUrl
+    category: str = Field(
+        ...,
+        pattern=r"^(weather|crypto|finance|geo|sports|logistics|other)$",
+    )
+
+    @field_validator("openapi_url")
+    @classmethod
+    def block_private_ranges(cls, v: HttpUrl) -> HttpUrl:
+        url_lower = str(v).lower()
+        for blocked in _SSRF_BLOCKLIST:
+            if blocked in url_lower:
+                raise ValueError(f"Private/internal URLs are not allowed ({blocked})")
+        return v
+
+
+# ── Background compilation task ───────────────────────────────────────
+
+async def _compile_background(url: str, category: str) -> None:
+    """Called by BackgroundTasks after the 202 is returned to the client."""
+    try:
+        from compiler.openapi_compiler import compile_from_url, save_to_db
+        result = compile_from_url(url)
+        save_to_db(result, category=category)
+    except Exception as exc:
+        import sys
+        print(f"[submit-api] background error for {url}: {exc}", file=sys.stderr)
+
+
+# ── Endpoints ─────────────────────────────────────────────────────────
+
+@app.post("/api/v1/submit-api", status_code=202)
+async def submit_api(
+    body: SubmitAPIRequest,
+    background_tasks: BackgroundTasks,
+    request: Request,
+):
+    """
+    Public. Accept an OpenAPI/Swagger URL, compile to MAI-API manifest via Haiku.
+    Returns HTTP 202 immediately; compilation runs in background (~15s).
+
+    Rate limits: 3 compilations per IP per hour · 20 total per day.
+    SSRF protection: private/internal URLs rejected by Pydantic validator.
+    """
+    ip = request.client.host if request.client else "unknown"
+    allowed, err_msg = _rate_limit_check(ip)
+    if not allowed:
+        raise HTTPException(status_code=429, detail=err_msg)
+
+    # Derive a preliminary service_name from the URL domain for the status URL
+    domain = urlparse(str(body.openapi_url)).netloc.lower()
+    service_hint = domain.split(".")[0]
+
+    background_tasks.add_task(_compile_background, str(body.openapi_url), body.category)
+
+    return {
+        "status": "queued",
+        "message": "Compilation started. Check status at:",
+        "status_url": f"https://aiaam.xyz/api/v1/services/{service_hint}/status",
+        "estimated_seconds": 15,
+    }
+
+
+@app.get("/api/v1/services/{service_name}/status")
+def service_status(service_name: str, session: Session = Depends(get_session)):
+    """Check whether a submitted API has been compiled and is ready.
+    Accepts the manifest service_name OR the URL domain hint returned in the 202."""
+    record = session.exec(
+        select(CompiledAPI).where(CompiledAPI.service_name == service_name)
+    ).first()
+    # Fallback: match by source_url containing the hint (handles domain→manifest name mismatch)
+    if not record:
+        record = session.exec(
+            select(CompiledAPI).where(CompiledAPI.source_url.ilike(f"%{service_name}%"))
+        ).first()
+    if not record:
+        return {
+            "service_name": service_name,
+            "status": "pending_or_not_found",
+            "note": "Compilation may still be running, or service_name not recognised.",
+        }
+    return {
+        "service_name": record.service_name,
+        "status": "ready",
+        "category": record.category,
+        "compiled_at": record.compiled_at.isoformat() + "Z",
+        "tokens_used": record.tokens_used,
+        "verified": record.verified,
+        "manifest_url": f"https://aiaam.xyz/api/v1/services/{service_name}/mai-api.json",
+    }
+
+
+@app.get("/api/v1/services/{service_name}/mai-api.json")
+def service_manifest(service_name: str, session: Session = Depends(get_session)):
+    """Returns the compiled MAI-API manifest JSON, or 404 if not ready."""
+    record = session.exec(
+        select(CompiledAPI).where(CompiledAPI.service_name == service_name)
+    ).first()
+    if not record:
+        record = session.exec(
+            select(CompiledAPI).where(CompiledAPI.source_url.ilike(f"%{service_name}%"))
+        ).first()
+    if not record:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No compiled manifest for '{service_name}'. Submit via POST /api/v1/submit-api first.",
+        )
+    return record.manifest
 
 
 # =====================================================================
