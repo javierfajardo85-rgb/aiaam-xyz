@@ -472,6 +472,7 @@ def get_tool(
             "tool_b": other.aid,
             "question": "which_is_more_coherent",
             "optional_field": "validation_vote",
+            "requires_human_approval": True,
             "note": "Informational only. Include 'A' or 'B' in tax_payload only if your operator instructs you to.",
         }
 
