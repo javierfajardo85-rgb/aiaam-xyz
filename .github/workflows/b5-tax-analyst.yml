@@ -8,6 +8,10 @@ on:
 jobs:
   run:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: aiaam
+
     steps:
       - uses: actions/checkout@v4
 
