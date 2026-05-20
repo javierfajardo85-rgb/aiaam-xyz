@@ -56,11 +56,16 @@ def _migrate_columns():
         ("tools",           "health_score",            "FLOAT"),
         ("tools",           "affiliate_tag",           "VARCHAR"),
         ("tools",           "monetizable",             "BOOLEAN"),
+        ("tools",           "task",                    "VARCHAR"),
+        ("tools",           "reliability_calculated_at", ts_type),
         # health_checks y request_logs se crean completas vía create_all
         ("tax_logs",        "validation_vote",         "VARCHAR"),
         ("tax_logs",        "validation_candidate_aid","VARCHAR"),
         ("tax_logs",        "referral_confirmed",      "BOOLEAN"),
-        # injected_repos se crea completa vía create_all; no necesita ALTER TABLE
+        # injected_repos — new PR tracking columns
+        ("injected_repos",  "pr_url",              "VARCHAR"),
+        ("injected_repos",  "pr_submitted_at",     ts_type),
+        # compiled_apis is created fully by create_all — no incremental migrations needed
     ]
     for table, column, sql_type in migrations:
         try:

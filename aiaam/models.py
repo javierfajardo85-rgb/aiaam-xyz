@@ -51,6 +51,8 @@ class Tool(SQLModel, table=True):
     health_score: Optional[float] = Field(default=None)          # avg of last 5 response_integrity_scores
     affiliate_tag: Optional[str] = Field(default=None)           # affiliate URL, null if no programme
     monetizable: bool = Field(default=False)                     # verified + score>=0.80 + affiliate programme
+    task: Optional[str] = Field(default=None)                    # MAI-1 task identifier, e.g. "safe_task_execution_with_dedup"
+    reliability_calculated_at: Optional[datetime] = Field(default=None)  # when score was last computed from real metadata
 
 
 # =====================================================================
@@ -130,6 +132,8 @@ class InjectedRepo(SQLModel, table=True):
     license_spdx: str = Field(default="unknown")      # "MIT" | "Apache-2.0" | ...
     instructions_md: str                               # contenido generado
     injected_at: datetime = Field(default_factory=datetime.utcnow)
+    pr_url: Optional[str] = Field(default=None)        # GitHub PR URL once submitted
+    pr_submitted_at: Optional[datetime] = Field(default=None)
 
 
 # =====================================================================
@@ -209,13 +213,32 @@ class AgentLog(SQLModel, table=True):
     summary: Optional[str] = Field(default=None)  # JSON-serialisable string
 
 
+# =====================================================================
+# COMPILED APIS — OpenAPI → mai-api.json via Haiku compiler
+# =====================================================================
+
+class CompiledAPI(SQLModel, table=True):
+    """A compiled OpenAPI manifest produced by the Haiku compiler engine."""
+    __tablename__ = "compiled_apis"
+
+    id:               Optional[int]      = Field(default=None, primary_key=True)
+    service_name:     str                = Field(index=True)
+    category:         str                = Field(index=True)
+    source_url:       str
+    manifest:         dict               = Field(sa_column=Column(JSON))
+    reliability_score: float             = Field(default=0.80)
+    compiled_at:      datetime           = Field(default_factory=datetime.utcnow, index=True)
+    tokens_used:      int                = Field(default=0)
+    verified:         bool               = Field(default=False)
+
+
 def tool_to_mai1(tool: Tool, include_action: bool = True) -> dict:
     """Convert DB Tool to MAI-1 response dict."""
+    identity: dict = {"aid": tool.aid, "version": tool.version}
+    if tool.task:
+        identity["task"] = tool.task
     response = {
-        "identity": {
-            "aid": tool.aid,
-            "version": tool.version,
-        },
+        "identity": identity,
         "logic": {
             "input_schema": tool.input_schema,
             "output_schema": tool.output_schema,
