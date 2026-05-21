@@ -138,6 +138,45 @@ def _truncate_spec(spec: dict) -> tuple[dict, bool]:
 
 # ── Core compilation ─────────────────────────────────────────────────
 
+def _repair_truncated_json(raw: str) -> Optional[dict]:
+    """
+    Haiku sometimes hits max_tokens mid-JSON, leaving open arrays/objects.
+    Strategy: truncate the intents array at the last fully-closed intent,
+    then close all open structures. Returns parsed dict or None on failure.
+    """
+    # Find the last complete intent object: ends with }
+    # Walk backwards from end, try to close open braces/brackets
+    text = raw.rstrip()
+
+    # Count open braces/brackets to figure out what needs closing
+    depth_brace   = text.count("{") - text.count("}")
+    depth_bracket = text.count("[") - text.count("]")
+
+    # Remove any trailing partial object (find last complete },)
+    # by truncating at the last "}" before any trailing incomplete tokens
+    last_complete = text.rfind("},")
+    if last_complete == -1:
+        last_complete = text.rfind("}")
+    if last_complete == -1:
+        return None
+
+    candidate = text[: last_complete + 1]  # up to and including the last "}"
+
+    # Close remaining open brackets and braces
+    depth_brace   = candidate.count("{") - candidate.count("}")
+    depth_bracket = candidate.count("[") - candidate.count("]")
+
+    closing = "]" * depth_bracket + "}" * depth_brace
+    repaired = candidate + closing
+
+    try:
+        result = json.loads(repaired)
+        print("[compiler] ⚠ JSON repaired (was truncated at max_tokens)", file=sys.stderr)
+        return result
+    except json.JSONDecodeError:
+        return None
+
+
 def compile_spec(spec: dict, source_url: str = "") -> dict:
     """
     Send the (possibly truncated) spec to Haiku and return:
@@ -172,7 +211,7 @@ def compile_spec(spec: dict, source_url: str = "") -> dict:
     client   = Anthropic(api_key=api_key)
     response = client.messages.create(
         model      = HAIKU_MODEL,
-        max_tokens = 2048,
+        max_tokens = 4096,
         system     = SYSTEM_PROMPT,
         messages   = [{"role": "user", "content": spec_text}],
     )
@@ -198,11 +237,14 @@ def compile_spec(spec: dict, source_url: str = "") -> dict:
 
     try:
         manifest = json.loads(raw_text)
-    except json.JSONDecodeError as exc:
-        raise ValueError(
-            f"Haiku returned non-JSON output. "
-            f"First 200 chars: {raw_text[:200]!r}"
-        ) from exc
+    except json.JSONDecodeError:
+        # Haiku hit max_tokens mid-JSON — repair by closing open structures
+        manifest = _repair_truncated_json(raw_text)
+        if manifest is None:
+            raise ValueError(
+                f"Haiku returned non-JSON output. "
+                f"First 200 chars: {raw_text[:200]!r}"
+            )
 
     return {
         "manifest":      manifest,
