@@ -1685,6 +1685,49 @@ def admin_verify_compiled_api(
     }
 
 
+@app.post("/admin/ingest-compiled-api")
+def admin_ingest_compiled_api(
+    body: dict,
+    x_admin_secret: Optional[str] = Header(None),
+    session: Session = Depends(get_session),
+):
+    """Upsert a CompiledAPI record from local SQLite → production PostgreSQL."""
+    if x_admin_secret != ADMIN_SECRET:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    service_name = body.get("service_name", "").lower().strip()
+    if not service_name:
+        raise HTTPException(status_code=422, detail="service_name required")
+
+    existing = session.exec(
+        select(CompiledAPI).where(CompiledAPI.service_name == service_name)
+    ).first()
+
+    if existing:
+        existing.category          = body.get("category", existing.category)
+        existing.source_url        = body.get("source_url", existing.source_url)
+        existing.manifest          = body.get("manifest", existing.manifest)
+        existing.reliability_score = body.get("reliability_score", existing.reliability_score)
+        existing.tokens_used       = body.get("tokens_used", existing.tokens_used)
+        existing.verified          = body.get("verified", existing.verified)
+        session.add(existing)
+        session.commit()
+        return {"ok": True, "action": "updated", "service_name": service_name}
+
+    record = CompiledAPI(
+        service_name      = service_name,
+        category          = body.get("category", "other"),
+        source_url        = body.get("source_url", ""),
+        manifest          = body.get("manifest", {}),
+        reliability_score = body.get("reliability_score", 0.80),
+        tokens_used       = body.get("tokens_used", 0),
+        verified          = body.get("verified", False),
+    )
+    session.add(record)
+    session.commit()
+    return {"ok": True, "action": "created", "service_name": service_name}
+
+
 # =====================================================================
 # MCP SERVER — JSON-RPC 2.0 for Claude Code, Cursor, Claude Desktop, etc.
 # No auth — public discovery layer. aid is the string PK on tools table.
