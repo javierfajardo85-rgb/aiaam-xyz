@@ -1086,6 +1086,84 @@ def bulk_tools(
     }
 
 
+@app.get("/api/v1/pricing")
+def pricing():
+    """Public pricing page for Model II — programmatic bulk access."""
+    return {
+        "plans": [
+            {
+                "name": "free",
+                "price": "£0/month",
+                "daily_limit": 100,
+                "features": ["GET /api/v1/tools (search)", "GET /api/v1/tools/{aid}", "MCP endpoint"],
+                "note": "No key required for public endpoints.",
+            },
+            {
+                "name": "pro",
+                "price": "£29/month",
+                "daily_limit": 2000,
+                "features": ["GET /api/v1/bulk?aids=... (up to 20 tools per call)", "Priority support", "Usage stats"],
+                "note": "Contact founders@aiaam.xyz to get a key.",
+            },
+            {
+                "name": "enterprise",
+                "price": "Custom",
+                "daily_limit": "unlimited",
+                "features": ["Unlimited bulk access", "SLA", "Custom integrations", "Dedicated support"],
+                "note": "Contact founders@aiaam.xyz",
+            },
+        ],
+        "bulk_endpoint": "GET /api/v1/bulk?aids=langchain-v1,chroma-v1",
+        "auth_header": "X-Api-Key: aik_pro_xxxx",
+        "contact": "founders@aiaam.xyz",
+    }
+
+
+@app.get("/admin/api-keys")
+def admin_list_keys(
+    session: Session = Depends(get_session),
+    x_admin_secret: Optional[str] = Header(default=None, alias="X-Admin-Secret"),
+):
+    """Admin — list all API keys with usage stats."""
+    if x_admin_secret != ADMIN_SECRET:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    keys = session.exec(select(ApiKey).order_by(ApiKey.created_at.desc())).all()
+    return {
+        "count": len(keys),
+        "keys": [
+            {
+                "key": k.key[:16] + "...",  # partial reveal for security
+                "owner": k.owner,
+                "plan": k.plan,
+                "active": k.active,
+                "daily_limit": k.daily_limit,
+                "requests_today": k.requests_today,
+                "total_requests": k.total_requests,
+                "created_at": k.created_at.isoformat(),
+            }
+            for k in keys
+        ],
+    }
+
+
+@app.delete("/admin/api-keys/{key_prefix}")
+def admin_deactivate_key(
+    key_prefix: str,
+    session: Session = Depends(get_session),
+    x_admin_secret: Optional[str] = Header(default=None, alias="X-Admin-Secret"),
+):
+    """Admin — deactivate a key by its full value."""
+    if x_admin_secret != ADMIN_SECRET:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    key = session.get(ApiKey, key_prefix)
+    if not key:
+        raise HTTPException(status_code=404, detail="Key not found")
+    key.active = False
+    session.add(key)
+    session.commit()
+    return {"deactivated": key_prefix[:16] + "...", "owner": key.owner}
+
+
 # =====================================================================
 # ADMIN DASHBOARD — invisible to agents, protected by token
 # =====================================================================
