@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MAI-API — Compact API Manifests for AI Agents | AIAAM</title>
+<meta name="description" content="MAI-API compresses public OpenAPI specifications into compact JSON manifests (~300 tokens) designed for AI agent consumption. Submit any OpenAPI URL to compile your own.">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0d0d0d; color: #e0e0e0; line-height: 1.6; }
+  a { color: #7eb8f7; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .header { border-bottom: 1px solid #222; padding: 24px 32px; display: flex; align-items: baseline; gap: 16px; }
+  .header h1 { font-size: 1.25rem; font-weight: 600; color: #fff; }
+  .header .back { font-size: 0.85rem; color: #666; }
+  .header .back a { color: #555; }
+  .header .back a:hover { color: #999; }
+
+  .main { max-width: 900px; margin: 0 auto; padding: 40px 32px; }
+
+  .hero { margin-bottom: 48px; }
+  .hero h2 { font-size: 1.6rem; font-weight: 700; color: #fff; margin-bottom: 12px; }
+  .hero p { color: #aaa; max-width: 640px; margin-bottom: 8px; }
+  .hero .notice { font-size: 0.82rem; color: #666; border-left: 2px solid #333; padding-left: 12px; margin-top: 16px; }
+
+  .example-box { background: #111; border: 1px solid #222; border-radius: 6px; padding: 20px 24px; margin: 24px 0; }
+  .example-box code { font-family: "SF Mono", "Fira Code", monospace; font-size: 0.85rem; color: #7eb8f7; }
+  .example-box .label { font-size: 0.75rem; color: #555; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
+
+  .submit-section { background: #111; border: 1px solid #2a2a2a; border-radius: 8px; padding: 28px; margin: 40px 0; }
+  .submit-section h3 { font-size: 1rem; font-weight: 600; color: #fff; margin-bottom: 8px; }
+  .submit-section p { font-size: 0.88rem; color: #888; margin-bottom: 16px; }
+  .submit-row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .submit-row input { flex: 1; min-width: 280px; background: #0d0d0d; border: 1px solid #333; border-radius: 4px; color: #e0e0e0; padding: 10px 14px; font-size: 0.9rem; }
+  .submit-row input:focus { outline: none; border-color: #7eb8f7; }
+  .submit-row select { background: #0d0d0d; border: 1px solid #333; border-radius: 4px; color: #e0e0e0; padding: 10px 14px; font-size: 0.9rem; }
+  .submit-row button { background: #1a3a5c; color: #7eb8f7; border: 1px solid #2a5a8c; border-radius: 4px; padding: 10px 20px; cursor: pointer; font-size: 0.9rem; }
+  .submit-row button:hover { background: #1e4a7a; }
+  #submit-result { margin-top: 12px; font-size: 0.85rem; color: #888; }
+
+  .catalog-section h3 { font-size: 1rem; font-weight: 600; color: #fff; margin-bottom: 20px; }
+  .category-block { margin-bottom: 32px; }
+  .category-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: #555; margin-bottom: 10px; border-bottom: 1px solid #1a1a1a; padding-bottom: 6px; }
+
+  .api-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
+  .api-card { background: #111; border: 1px solid #1e1e1e; border-radius: 5px; padding: 12px 14px; transition: border-color 0.15s; }
+  .api-card:hover { border-color: #333; }
+  .api-card .name { font-size: 0.88rem; color: #ccc; font-weight: 500; }
+  .api-card .meta { font-size: 0.75rem; color: #555; margin-top: 3px; }
+  .api-card .links { margin-top: 8px; display: flex; gap: 10px; font-size: 0.75rem; }
+
+  .stats-bar { display: flex; gap: 32px; margin: 32px 0; padding: 20px 0; border-top: 1px solid #1a1a1a; border-bottom: 1px solid #1a1a1a; }
+  .stat { }
+  .stat .n { font-size: 1.4rem; font-weight: 700; color: #fff; }
+  .stat .l { font-size: 0.78rem; color: #555; }
+
+  .footer { border-top: 1px solid #1a1a1a; padding: 24px 32px; margin-top: 60px; font-size: 0.78rem; color: #444; display: flex; gap: 24px; flex-wrap: wrap; }
+  .footer a { color: #555; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>MAI-API</h1>
+  <span class="back">part of <a href="/">AIAAM — AI as a Market</a></span>
+</div>
+
+<div class="main">
+
+  <div class="hero">
+    <h2>Compact API manifests for AI agents</h2>
+    <p>MAI-API takes public OpenAPI/Swagger specifications and compresses them into compact JSON manifests that AI agents can read in ~300 tokens — instead of parsing thousands of lines of raw spec.</p>
+    <p>Each manifest contains the service name, base URL, auth method, and up to 20 key endpoints with their parameters and return types. Nothing more.</p>
+    <div class="notice">
+      These manifests are compiled from publicly available OpenAPI specifications, primarily sourced from
+      <a href="https://apis.guru" target="_blank" rel="noopener">APIs.guru</a>.
+      AIAAM has no affiliation with the API providers listed below.
+      Manifests may be incomplete — always refer to the official documentation for authoritative information.
+    </div>
+  </div>
+
+  <div class="example-box">
+    <div class="label">Example — fetch the Stripe manifest</div>
+    <code>GET https://aiaam.xyz/api/v1/services/stripe_api/mai-api.json</code>
+    <br><br>
+    <div class="label">Response structure</div>
+    <code>{ "service": "Stripe API", "base_url": "https://api.stripe.com", "auth": { "type": "apikey", "header": "Authorization" }, "intents": [ { "id": "get_account", "method": "GET", "path": "/v1/account", "returns": "current account details" }, ... ] }</code>
+  </div>
+
+  <div class="stats-bar">
+    <div class="stat"><div class="n">{{ total }}</div><div class="l">manifests available</div></div>
+    <div class="stat"><div class="n">{{ categories|length }}</div><div class="l">categories</div></div>
+    <div class="stat"><div class="n">~300</div><div class="l">tokens per manifest</div></div>
+    <div class="stat"><div class="n">0</div><div class="l">auth required</div></div>
+  </div>
+
+  <div class="submit-section">
+    <h3>Compile your own API</h3>
+    <p>Have a public OpenAPI or Swagger URL? Submit it and we'll compile a MAI-API manifest within seconds. Free, no account needed.</p>
+    <div class="submit-row">
+      <input type="url" id="openapi-url" placeholder="https://yourapi.com/openapi.json" />
+      <select id="category">
+        <option value="other">other</option>
+        <option value="payments">payments</option>
+        <option value="communication">communication</option>
+        <option value="devtools">devtools</option>
+        <option value="productivity">productivity</option>
+        <option value="ai">ai</option>
+        <option value="data">data</option>
+        <option value="security">security</option>
+        <option value="media">media</option>
+        <option value="ecommerce">ecommerce</option>
+      </select>
+      <button onclick="submitApi()">Compile</button>
+    </div>
+    <div id="submit-result"></div>
+  </div>
+
+  <div class="catalog-section">
+    <h3>Available manifests</h3>
+    {% for category, apis in categories.items() %}
+    <div class="category-block">
+      <div class="category-label">{{ category }}</div>
+      <div class="api-grid">
+        {% for api in apis %}
+        <div class="api-card">
+          <div class="name">{{ api.display_name }}</div>
+          <div class="meta">{{ api.intents_count }} endpoints</div>
+          <div class="links">
+            <a href="/api/v1/services/{{ api.service_name }}/mai-api.json" target="_blank">manifest</a>
+            <a href="/api/v1/services/{{ api.service_name }}/status">status</a>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+</div>
+
+<div class="footer">
+  <span>Manifests sourced from <a href="https://apis.guru" target="_blank" rel="noopener">APIs.guru</a> (CC0). No affiliation with API providers.</span>
+  <span><a href="/">AIAAM home</a></span>
+  <span><a href="/docs">API docs</a></span>
+  <span><a href="https://github.com/javierfajardo85-rgb/aiaam-xyz" target="_blank" rel="noopener">GitHub</a></span>
+</div>
+
+<script>
+async function submitApi() {
+  const url = document.getElementById('openapi-url').value.trim();
+  const category = document.getElementById('category').value;
+  const resultEl = document.getElementById('submit-result');
+
+  if (!url || !url.startsWith('http')) {
+    resultEl.textContent = 'Please enter a valid URL starting with http:// or https://';
+    resultEl.style.color = '#c0392b';
+    return;
+  }
+
+  resultEl.textContent = 'Compiling… this takes a few seconds.';
+  resultEl.style.color = '#888';
+
+  try {
+    const resp = await fetch('/api/v1/submit-api', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ openapi_url: url, category })
+    });
+    const data = await resp.json();
+    if (resp.ok) {
+      resultEl.innerHTML = `Queued. Check status at: <a href="/api/v1/services/${data.service_name}/status">/api/v1/services/${data.service_name}/status</a>`;
+      resultEl.style.color = '#7eb8f7';
+    } else {
+      resultEl.textContent = `Error: ${data.detail || 'unknown error'}`;
+      resultEl.style.color = '#c0392b';
+    }
+  } catch (e) {
+    resultEl.textContent = `Network error: ${e.message}`;
+    resultEl.style.color = '#c0392b';
+  }
+}
+</script>
+
+</body>
+</html>

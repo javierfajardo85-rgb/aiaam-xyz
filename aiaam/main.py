@@ -276,6 +276,46 @@ def llmo_root(request: Request, session: Session = Depends(get_session)):
     )
 
 
+@app.get("/mai-api", response_class=HTMLResponse)
+def mai_api_page(request: Request, session: Session = Depends(get_session)):
+    """
+    Public landing page for MAI-API — lists compiled manifests by category.
+    Honest attribution: specs sourced from APIs.guru (CC0), no vendor affiliation.
+    """
+    records = session.exec(
+        select(CompiledAPI)
+        .where(CompiledAPI.verified == True)
+        .order_by(CompiledAPI.service_name)
+    ).all()
+
+    # Group by category, build display-friendly entries
+    from collections import defaultdict
+    categories: dict = defaultdict(list)
+    for r in records:
+        intents_count = len(r.manifest.get("intents", [])) if r.manifest else 0
+        display_name = r.manifest.get("service", r.service_name) if r.manifest else r.service_name
+        categories[r.category].append({
+            "service_name": r.service_name,
+            "display_name": display_name,
+            "intents_count": intents_count,
+        })
+
+    # Sort categories alphabetically, items within each by display_name
+    sorted_categories = {
+        k: sorted(v, key=lambda x: x["display_name"].lower())
+        for k, v in sorted(categories.items())
+    }
+
+    return templates.TemplateResponse(
+        "mai_api.html",
+        {
+            "request": request,
+            "total": len(records),
+            "categories": sorted_categories,
+        },
+    )
+
+
 @app.get("/.well-known/mcp.json")
 def well_known_mcp(session: Session = Depends(get_session)):
     """
