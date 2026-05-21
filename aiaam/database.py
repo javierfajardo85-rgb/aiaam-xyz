@@ -58,6 +58,7 @@ def _migrate_columns():
         ("tools",           "monetizable",             "BOOLEAN"),
         ("tools",           "task",                    "VARCHAR"),
         ("tools",           "reliability_calculated_at", ts_type),
+        ("tools",           "sponsored",               "BOOLEAN"),
         # health_checks y request_logs se crean completas vía create_all
         ("tax_logs",        "validation_vote",         "VARCHAR"),
         ("tax_logs",        "validation_candidate_aid","VARCHAR"),

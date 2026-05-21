@@ -378,12 +378,19 @@ def search_tools(
     if category and category.strip():
         conditions.append(Tool.source_platform.ilike(f"%{category.strip().lower()}%"))
 
-    stmt = select(Tool).where(*conditions).order_by(Tool.reliability_score.desc()).limit(10)
+    stmt = (
+        select(Tool)
+        .where(*conditions)
+        .order_by(Tool.sponsored.desc(), Tool.reliability_score.desc())
+        .limit(10)
+    )
     tools = session.exec(stmt).all()
     results = []
     for t in tools:
         entry = tool_to_mai1(t, include_action=False)
         entry["endpoint"] = f"GET /api/v1/tools/{t.aid}"
+        if t.sponsored:
+            entry["sponsored"] = True
         results.append(entry)
 
     return {

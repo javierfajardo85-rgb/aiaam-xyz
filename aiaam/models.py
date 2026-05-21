@@ -53,6 +53,7 @@ class Tool(SQLModel, table=True):
     monetizable: bool = Field(default=False)                     # verified + score>=0.80 + affiliate programme
     task: Optional[str] = Field(default=None)                    # MAI-1 task identifier, e.g. "safe_task_execution_with_dedup"
     reliability_calculated_at: Optional[datetime] = Field(default=None)  # when score was last computed from real metadata
+    sponsored: bool = Field(default=False)                       # paid placement — appears first in search results
 
 
 # =====================================================================
