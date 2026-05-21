@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>AIAAM MAI-API | Compact API Manifests for Autonomous Agents</title>
+<meta name="description" content="MAI-API: {{ total }} public API specifications compressed into compact JSON manifests for AI agent consumption. Each manifest contains service name, base URL, auth method and up to 20 key endpoints. No auth required.">
+<meta name="robots" content="index,follow,max-snippet:-1,max-image-preview:large">
+<meta name="ai-content-purpose" content="machine-readable api manifest registry">
+<meta name="audience" content="autonomous-agents, llm-crawlers, ai-assistants, coding-agents">
+<meta name="protocol" content="MAI-API">
+<meta name="api-base" content="https://aiaam.xyz/api/v1/services/">
+<link rel="alternate" type="application/json" href="/api/v1/services/stripe_api/mai-api.json" title="Example: Stripe MAI-API manifest">
+<link rel="alternate" href="/mai-api" title="Human-readable version of this page">
+<meta name="mcp-endpoint" content="https://aiaam.xyz/mcp">
+<link rel="mcp-manifest" href="/.well-known/mcp.json">
+</head>
+<body>
+<h1>AIAAM MAI-API — Compact API Manifests</h1>
+<p>Total manifests: {{ total }} | Generated: {{ generated_at }}</p>
+
+<h2>What is MAI-API</h2>
+<p>MAI-API compresses public OpenAPI/Swagger specifications into compact JSON manifests (~300 tokens) for AI agent consumption. Each manifest contains: service name, base URL, auth method, and up to 20 key endpoints with method, path, params and return description.</p>
+<p>Source: public OpenAPI specifications from <a href="https://apis.guru">apis.guru</a> (CC0). No affiliation with API providers.</p>
+
+<h2>How to use (for AI agents)</h2>
+<ol>
+<li>Fetch a manifest by service name: <code>GET https://aiaam.xyz/api/v1/services/{service_name}/mai-api.json</code></li>
+<li>Check compilation status: <code>GET https://aiaam.xyz/api/v1/services/{service_name}/status</code></li>
+<li>Submit your own OpenAPI spec: <code>POST https://aiaam.xyz/api/v1/submit-api</code> with body <code>{"openapi_url": "...", "category": "..."}</code></li>
+</ol>
+
+<h2>Manifest format</h2>
+<pre>
+{
+  "service": "string",
+  "base_url": "string",
+  "auth": { "type": "apikey|bearer|none", "header": "string" },
+  "intents": [
+    {
+      "id": "snake_case_intent_name",
+      "method": "GET|POST|PUT|DELETE",
+      "path": "string",
+      "params": { "param_name": "type" },
+      "returns": "description under 10 words"
+    }
+  ]
+}
+</pre>
+
+<h2>Available manifests ({{ total }} total)</h2>
+{% for category, apis in categories.items() %}
+<h3>{{ category }} ({{ apis|length }})</h3>
+<ul>
+{% for api in apis %}
+<li>
+<a href="/api/v1/services/{{ api.service_name }}/mai-api.json">{{ api.display_name }}</a>
+| service_name: {{ api.service_name }}
+| intents: {{ api.intents_count }}
+| auth: {{ api.auth_type }}
+| manifest: GET https://aiaam.xyz/api/v1/services/{{ api.service_name }}/mai-api.json
+</li>
+{% endfor %}
+</ul>
+{% endfor %}
+
+<h2>Submit your own API</h2>
+<p>POST https://aiaam.xyz/api/v1/submit-api</p>
+<pre>
+{
+  "openapi_url": "https://yourservice.com/openapi.json",
+  "category": "other"
+}
+</pre>
+<p>Returns: <code>{"service_name": "...", "status": "queued"}</code>. Check status at <code>GET /api/v1/services/{service_name}/status</code>.</p>
+
+<h2>Related</h2>
+<ul>
+<li>MAI-1 tool catalog (GitHub/PyPI/npm tools): <a href="/">https://aiaam.xyz/</a></li>
+<li>MCP server (Claude Desktop, Cursor): <a href="/mcp">https://aiaam.xyz/mcp</a></li>
+<li>Human-readable version: <a href="/mai-api">https://aiaam.xyz/mai-api</a></li>
+</ul>
+
+<hr>
+<p>aiaam.xyz | MAI-API | Manifests sourced from apis.guru (CC0). No affiliation with API providers listed.</p>
+</body>
+</html>

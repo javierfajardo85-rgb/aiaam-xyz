@@ -276,6 +276,48 @@ def llmo_root(request: Request, session: Session = Depends(get_session)):
     )
 
 
+@app.get("/llmo-apis", response_class=HTMLResponse)
+def llmo_apis(request: Request, session: Session = Depends(get_session)):
+    """
+    Machine-readable index of MAI-API manifests — plain HTML, no CSS.
+    Equivalent of llmo.html but for compiled API manifests.
+    Designed for AI crawlers, coding agents, LLM scrapers.
+    """
+    records = session.exec(
+        select(CompiledAPI)
+        .where(CompiledAPI.verified == True)
+        .order_by(CompiledAPI.service_name)
+    ).all()
+
+    from collections import defaultdict
+    categories: dict = defaultdict(list)
+    for r in records:
+        manifest = r.manifest or {}
+        intents = manifest.get("intents", [])
+        auth = manifest.get("auth", {})
+        categories[r.category].append({
+            "service_name": r.service_name,
+            "display_name": manifest.get("service", r.service_name),
+            "intents_count": len(intents),
+            "auth_type": auth.get("type", "unknown"),
+        })
+
+    sorted_categories = {
+        k: sorted(v, key=lambda x: x["display_name"].lower())
+        for k, v in sorted(categories.items())
+    }
+
+    return templates.TemplateResponse(
+        "llmo_apis.html",
+        {
+            "request": request,
+            "total": len(records),
+            "categories": sorted_categories,
+            "generated_at": datetime.utcnow().isoformat() + "Z",
+        },
+    )
+
+
 @app.get("/mai-api", response_class=HTMLResponse)
 def mai_api_page(request: Request, session: Session = Depends(get_session)):
     """
