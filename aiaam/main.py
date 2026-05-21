@@ -379,7 +379,7 @@ def well_known_mcp(session: Session = Depends(get_session)):
         "mcp_endpoint": "https://aiaam.xyz/mcp",
         "mcp_sse_endpoint": "https://aiaam.xyz/mcp/sse",
         "tools_count": tools_count,
-        "tools": ["search_tools", "get_tool", "get_trending"],
+        "tools": ["search_tools", "get_tool", "get_trending", "get_api_manifest", "compile_api"],
         "protocol": "JSON-RPC 2.0",
         "transports": ["streamable_http", "sse"],
         "contact": "aiaam.xyz",
@@ -1547,35 +1547,58 @@ _ip_timestamps: dict[str, list] = defaultdict(list)
 _daily_count    = [0]
 _daily_reset_at = [datetime.utcnow()]
 
-_MAX_PER_IP_HOUR = 3
-_MAX_DAILY_TOTAL = 20
+# Layer 1 — Hard caps
+_MAX_PER_IP_HOUR  = 2    # anonymous public users: max 2/hour/IP
+_MAX_DAILY_TOTAL  = 10   # global hard cap: max 10 compilations/day across all users
+_MAX_DAILY_APIKEY = 20   # API-key holders: max 20/day per key (tracked in ApiKey table)
 
 
 def _rate_limit_check(ip: str) -> tuple[bool, str]:
     now = datetime.utcnow()
     with _rl_lock:
-        # Reset daily counter at midnight UTC
         if (now - _daily_reset_at[0]).days >= 1:
             _daily_count[0]    = 0
             _daily_reset_at[0] = now
-        # Global daily cap
         if _daily_count[0] >= _MAX_DAILY_TOTAL:
             return False, (
-                "Daily compilation limit reached. "
-                "Resets at midnight UTC. Contact aiaam.xyz for bulk access."
+                f"Global daily compilation limit reached ({_MAX_DAILY_TOTAL}/day). "
+                "Resets at midnight UTC. Use an API key for higher limits."
             )
-        # Per-IP hourly cap
         cutoff = now - timedelta(hours=1)
         _ip_timestamps[ip] = [t for t in _ip_timestamps[ip] if t > cutoff]
         if len(_ip_timestamps[ip]) >= _MAX_PER_IP_HOUR:
-            return False, f"Rate limit: max {_MAX_PER_IP_HOUR} compilations per IP per hour."
-        # Record and allow
+            return False, (
+                f"Rate limit: max {_MAX_PER_IP_HOUR} compilations per IP per hour. "
+                "Use an API key for higher limits."
+            )
         _ip_timestamps[ip].append(now)
         _daily_count[0] += 1
         return True, ""
 
 
-# ── SSRF-safe request model ───────────────────────────────────────────
+# Layer 2 — Domain allowlist for unauthenticated requests
+# Only well-known public spec repositories are allowed without an API key.
+# Arbitrary domains require a valid API key (prevents SSRF-adjacent abuse
+# and stops agents from compiling random internal services).
+_PUBLIC_DOMAIN_ALLOWLIST = {
+    "api.apis.guru",
+    "apis.guru",
+    "raw.githubusercontent.com",
+    "petstore3.swagger.io",
+    "petstore.swagger.io",
+    "editor.swagger.io",
+    "validator.swagger.io",
+}
+
+
+def _domain_allowed_without_key(url: str) -> bool:
+    """Returns True if the URL's domain is in the public allowlist."""
+    from urllib.parse import urlparse
+    host = urlparse(url).netloc.lower().split(":")[0]
+    return host in _PUBLIC_DOMAIN_ALLOWLIST
+
+
+# Layer 3 — SSRF blocklist (always enforced, even with API key)
 _SSRF_BLOCKLIST = [
     "localhost", "127.", "192.168.", "10.", "172.16.", "172.17.",
     "0.0.0.0", "::1", "internal", "railway.app", "railwayapp.com",
@@ -1586,8 +1609,8 @@ _SSRF_BLOCKLIST = [
 class SubmitAPIRequest(BaseModel):
     openapi_url: HttpUrl
     category: str = Field(
-        ...,
-        pattern=r"^(weather|crypto|finance|geo|sports|logistics|other)$",
+        default="other",
+        pattern=r"^(payments|finance|communication|devtools|google|ai|productivity|security|ecommerce|media|social|data|other)$",
     )
 
     @field_validator("openapi_url")
@@ -1620,24 +1643,71 @@ async def submit_api(
     body: SubmitAPIRequest,
     background_tasks: BackgroundTasks,
     request: Request,
+    x_api_key: Optional[str] = Header(None),
+    session: Session = Depends(get_session),
 ):
     """
-    Public. Accept an OpenAPI/Swagger URL, compile to MAI-API manifest via Haiku.
+    Compile a public OpenAPI/Swagger URL into a MAI-API manifest via Haiku.
     Returns HTTP 202 immediately; compilation runs in background (~15s).
 
-    Rate limits: 3 compilations per IP per hour · 20 total per day.
-    SSRF protection: private/internal URLs rejected by Pydantic validator.
-    """
-    ip = request.client.host if request.client else "unknown"
-    allowed, err_msg = _rate_limit_check(ip)
-    if not allowed:
-        raise HTTPException(status_code=429, detail=err_msg)
+    Access rules:
+    - No API key: only URLs from the public allowlist (apis.guru, raw.githubusercontent.com, etc.)
+    - Valid API key: any public URL (SSRF blocklist still enforced)
 
-    # Derive a preliminary service_name from the URL domain for the status URL
-    domain = urlparse(str(body.openapi_url)).netloc.lower()
+    Rate limits:
+    - No key: 2/hour/IP · 10/day global hard cap
+    - API key: 20/day per key
+    """
+    url_str = str(body.openapi_url)
+    ip = request.client.host if request.client else "unknown"
+
+    # ── Layer 2: domain allowlist check for unauthenticated requests ──
+    if not x_api_key:
+        if not _domain_allowed_without_key(url_str):
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error": "api_key_required",
+                    "message": (
+                        "Compiling arbitrary URLs requires an API key. "
+                        "Without a key, only public spec repositories are allowed "
+                        "(apis.guru, raw.githubusercontent.com). "
+                        "See https://aiaam.xyz/api/v1/pricing for plans."
+                    ),
+                    "allowed_without_key": sorted(_PUBLIC_DOMAIN_ALLOWLIST),
+                },
+            )
+        # Anonymous user — apply strict rate limit
+        allowed, err_msg = _rate_limit_check(ip)
+        if not allowed:
+            raise HTTPException(status_code=429, detail=err_msg)
+    else:
+        # ── Layer 1 (API key path): validate key + per-key daily limit ──
+        key_record = session.get(ApiKey, x_api_key)
+        if not key_record or not key_record.active:
+            raise HTTPException(status_code=401, detail="Invalid or inactive API key.")
+
+        # Reset daily counter if needed
+        now = datetime.utcnow()
+        if (now - key_record.last_reset).days >= 1:
+            key_record.requests_today = 0
+            key_record.last_reset = now
+
+        if key_record.requests_today >= _MAX_DAILY_APIKEY:
+            raise HTTPException(
+                status_code=429,
+                detail=f"API key daily limit reached ({_MAX_DAILY_APIKEY}/day). Resets at midnight UTC.",
+            )
+
+        key_record.requests_today += 1
+        key_record.total_requests += 1
+        session.add(key_record)
+        session.commit()
+
+    domain = urlparse(url_str).netloc.lower()
     service_hint = domain.split(".")[0]
 
-    background_tasks.add_task(_compile_background, str(body.openapi_url), body.category)
+    background_tasks.add_task(_compile_background, url_str, body.category)
 
     return {
         "status": "queued",
@@ -1872,6 +1942,60 @@ _MCP_TOOLS_LIST = [
             },
         },
     },
+    {
+        "name": "get_api_manifest",
+        "description": (
+            "Returns a compact MAI-API manifest for a web API service (Stripe, Slack, GitHub, etc.). "
+            "Each manifest is ~300 tokens and contains the base URL, auth method, and up to 20 key "
+            "endpoints. Use this instead of fetching and parsing a full OpenAPI spec. "
+            "Available services include: stripe_api, slack_web_api, github, openai_api, notion_api, "
+            "jira_cloud_rest_api, gmail_api, google_calendar_api, twilio_api, sendgrid_email_activity_api, "
+            "spotify_web_api, twitter_api_v2, and 30+ more. "
+            "Returns {error: not_found} if the service has not been compiled yet."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "service_name": {
+                    "type": "string",
+                    "description": (
+                        "The service identifier, e.g. 'stripe_api', 'slack_web_api', 'openai_api'. "
+                        "Use underscores, lowercase. Check /llmo-apis for the full list."
+                    ),
+                },
+            },
+            "required": ["service_name"],
+        },
+    },
+    {
+        "name": "compile_api",
+        "description": (
+            "Compiles a public OpenAPI/Swagger spec URL into a compact MAI-API manifest. "
+            "Requires a valid API key (X-Api-Key). Without a key, only specs from "
+            "apis.guru or raw.githubusercontent.com are accepted. "
+            "Returns immediately with a status_url to poll for the result (~15 seconds). "
+            "Use get_api_manifest to fetch the result once ready."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "openapi_url": {
+                    "type": "string",
+                    "description": "Public URL of an OpenAPI 3.x or Swagger 2.x JSON/YAML spec.",
+                },
+                "category": {
+                    "type": "string",
+                    "description": "Category hint: payments, communication, devtools, ai, productivity, security, data, other",
+                    "default": "other",
+                },
+                "api_key": {
+                    "type": "string",
+                    "description": "Optional API key for unrestricted URL access. Without key, only apis.guru and github raw URLs are allowed.",
+                },
+            },
+            "required": ["openapi_url"],
+        },
+    },
 ]
 
 _MCP_SERVER_INFO = {"name": "aiaam-mcp", "version": "1.0.0"}
@@ -2003,6 +2127,76 @@ async def mcp_handler(rpc: _JsonRpcRequest, session: Session = Depends(get_sessi
             results = _mcp_trending(limit, session)
             return _jsonrpc_ok(req_id, _mcp_content({"count": len(results), "results": results}))
 
+        if tool_name == "get_api_manifest":
+            service_name = arguments.get("service_name", "").strip().lower()
+            if not service_name:
+                return _jsonrpc_err(req_id, -32602, "argument 'service_name' is required")
+            record = session.exec(
+                select(CompiledAPI)
+                .where(CompiledAPI.service_name == service_name)
+                .where(CompiledAPI.verified == True)
+            ).first()
+            if not record:
+                return _jsonrpc_ok(req_id, _mcp_content({
+                    "error": "not_found",
+                    "message": f"No verified manifest for '{service_name}'. "
+                               "Check https://aiaam.xyz/llmo-apis for available services, "
+                               "or use compile_api to submit a new spec.",
+                }))
+            return _jsonrpc_ok(req_id, _mcp_content({
+                "service_name": record.service_name,
+                "manifest": record.manifest,
+                "compiled_at": record.compiled_at.isoformat() + "Z",
+                "source": record.source_url,
+            }))
+
+        if tool_name == "compile_api":
+            openapi_url = arguments.get("openapi_url", "").strip()
+            category    = arguments.get("category", "other")
+            api_key     = arguments.get("api_key", "")
+            if not openapi_url:
+                return _jsonrpc_err(req_id, -32602, "argument 'openapi_url' is required")
+            for blocked in _SSRF_BLOCKLIST:
+                if blocked in openapi_url.lower():
+                    return _jsonrpc_err(req_id, -32602, "URL not allowed: private/internal hosts are blocked.")
+            if not api_key:
+                if not _domain_allowed_without_key(openapi_url):
+                    return _jsonrpc_ok(req_id, _mcp_content({
+                        "error": "api_key_required",
+                        "message": (
+                            "Compiling arbitrary URLs requires an API key. "
+                            "Without a key, only these domains are allowed: "
+                            + ", ".join(sorted(_PUBLIC_DOMAIN_ALLOWLIST)) + ". "
+                            "See https://aiaam.xyz/api/v1/pricing for plans."
+                        ),
+                    }))
+            else:
+                key_record = session.get(ApiKey, api_key)
+                if not key_record or not key_record.active:
+                    return _jsonrpc_ok(req_id, _mcp_content({"error": "invalid_api_key"}))
+                now_dt = datetime.utcnow()
+                if (now_dt - key_record.last_reset).days >= 1:
+                    key_record.requests_today = 0
+                    key_record.last_reset = now_dt
+                if key_record.requests_today >= _MAX_DAILY_APIKEY:
+                    return _jsonrpc_ok(req_id, _mcp_content({
+                        "error": "rate_limit",
+                        "message": f"API key daily limit reached ({_MAX_DAILY_APIKEY}/day).",
+                    }))
+                key_record.requests_today += 1
+                key_record.total_requests += 1
+                session.add(key_record)
+                session.commit()
+            asyncio.create_task(_compile_background(openapi_url, category))
+            from urllib.parse import urlparse as _up
+            service_hint = _up(openapi_url).netloc.lower().split(".")[0]
+            return _jsonrpc_ok(req_id, _mcp_content({
+                "status": "queued",
+                "message": "Compilation started (~15 seconds).",
+                "status_url": f"https://aiaam.xyz/api/v1/services/{service_hint}/status",
+                "next_step": f"Call get_api_manifest(service_name='{service_hint}') after ~15 seconds.",
+            }))
+
         return _jsonrpc_err(req_id, -32601, f"unknown tool: '{tool_name}'")
 
     return _jsonrpc_err(req_id, -32601, f"method not found: '{method}'")
@@ -2053,6 +2247,88 @@ def _process_mcp_rpc(rpc: _JsonRpcRequest, session: Session) -> dict:
             limit = int(arguments.get("limit", 10))
             results = _mcp_trending(limit, session)
             return _jsonrpc_ok(req_id, _mcp_content({"count": len(results), "results": results}))
+
+        if tool_name == "get_api_manifest":
+            service_name = arguments.get("service_name", "").strip().lower()
+            if not service_name:
+                return _jsonrpc_err(req_id, -32602, "argument 'service_name' is required")
+            record = session.exec(
+                select(CompiledAPI)
+                .where(CompiledAPI.service_name == service_name)
+                .where(CompiledAPI.verified == True)
+            ).first()
+            if not record:
+                return _jsonrpc_ok(req_id, _mcp_content({
+                    "error": "not_found",
+                    "message": f"No verified manifest for '{service_name}'. "
+                               "Check /llmo-apis for available services, or use compile_api to submit a new spec.",
+                }))
+            return _jsonrpc_ok(req_id, _mcp_content({
+                "service_name": record.service_name,
+                "manifest": record.manifest,
+                "compiled_at": record.compiled_at.isoformat() + "Z",
+                "source": record.source_url,
+            }))
+
+        if tool_name == "compile_api":
+            openapi_url = arguments.get("openapi_url", "").strip()
+            category    = arguments.get("category", "other")
+            api_key     = arguments.get("api_key", "")
+
+            if not openapi_url:
+                return _jsonrpc_err(req_id, -32602, "argument 'openapi_url' is required")
+
+            # SSRF check
+            for blocked in _SSRF_BLOCKLIST:
+                if blocked in openapi_url.lower():
+                    return _jsonrpc_err(req_id, -32602, f"URL not allowed: private/internal hosts are blocked.")
+
+            # Domain allowlist or API key required
+            if not api_key:
+                if not _domain_allowed_without_key(openapi_url):
+                    return _jsonrpc_ok(req_id, _mcp_content({
+                        "error": "api_key_required",
+                        "message": (
+                            "Compiling arbitrary URLs requires an API key. "
+                            "Without a key, only public spec repositories are allowed: "
+                            + ", ".join(sorted(_PUBLIC_DOMAIN_ALLOWLIST)) + ". "
+                            "See https://aiaam.xyz/api/v1/pricing for plans."
+                        ),
+                    }))
+            else:
+                key_record = session.get(ApiKey, api_key)
+                if not key_record or not key_record.active:
+                    return _jsonrpc_ok(req_id, _mcp_content({
+                        "error": "invalid_api_key",
+                        "message": "The provided API key is invalid or inactive.",
+                    }))
+                now = datetime.utcnow()
+                if (now - key_record.last_reset).days >= 1:
+                    key_record.requests_today = 0
+                    key_record.last_reset = now
+                if key_record.requests_today >= _MAX_DAILY_APIKEY:
+                    return _jsonrpc_ok(req_id, _mcp_content({
+                        "error": "rate_limit",
+                        "message": f"API key daily limit reached ({_MAX_DAILY_APIKEY}/day). Resets at midnight UTC.",
+                    }))
+                key_record.requests_today += 1
+                key_record.total_requests += 1
+                session.add(key_record)
+                session.commit()
+
+            # Queue compilation in background
+            import asyncio
+            asyncio.create_task(_compile_background(openapi_url, category))
+
+            from urllib.parse import urlparse as _up
+            service_hint = _up(openapi_url).netloc.lower().split(".")[0]
+            return _jsonrpc_ok(req_id, _mcp_content({
+                "status": "queued",
+                "message": "Compilation started (~15 seconds). Poll status_url to check when ready.",
+                "status_url": f"https://aiaam.xyz/api/v1/services/{service_hint}/status",
+                "next_step": f"Call get_api_manifest(service_name='{service_hint}') after ~15 seconds.",
+            }))
+
         return _jsonrpc_err(req_id, -32601, f"unknown tool: '{tool_name}'")
     return _jsonrpc_err(req_id, -32601, f"method not found: '{method}'")
 
