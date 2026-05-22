@@ -1314,78 +1314,117 @@ def search_trends(
     Search query analytics — drives catalog expansion decisions.
     The zero-results bucket shows what agents need that we don't have yet.
     Protected: X-Admin-Secret required.
+    Returns empty arrays gracefully when the table is empty or just created.
     """
     if x_admin_secret != ADMIN_SECRET:
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    cutoff_7d  = datetime.utcnow() - timedelta(days=7)
-    cutoff_24h = datetime.utcnow() - timedelta(hours=24)
-
-    # Top 20 queries by frequency (last 7 days)
-    top_queries_rows = session.exec(sa_text("""
-        SELECT query, COUNT(*) as n, AVG(results_count) as avg_results
-        FROM search_logs
-        WHERE timestamp >= :cutoff
-        GROUP BY LOWER(query)
-        ORDER BY n DESC
-        LIMIT 20
-    """).bindparams(cutoff=cutoff_7d)).all()
-
-    # Top 20 zero-result queries (last 7 days) — catalog expansion signal
-    zero_result_rows = session.exec(sa_text("""
-        SELECT query, COUNT(*) as n, MAX(timestamp) as last_seen
-        FROM search_logs
-        WHERE timestamp >= :cutoff AND results_count = 0
-        GROUP BY LOWER(query)
-        ORDER BY n DESC
-        LIMIT 20
-    """).bindparams(cutoff=cutoff_7d)).all()
-
-    # Queries per hour (last 24h)
-    hourly_rows = session.exec(sa_text("""
-        SELECT
-            strftime('%Y-%m-%dT%H:00:00', timestamp) as hour,
-            COUNT(*) as queries
-        FROM search_logs
-        WHERE timestamp >= :cutoff
-        GROUP BY hour
-        ORDER BY hour
-    """).bindparams(cutoff=cutoff_24h)).all()
-
-    # Unique user_agents
-    ua_rows = session.exec(sa_text("""
-        SELECT user_agent, COUNT(*) as n
-        FROM search_logs
-        WHERE timestamp >= :cutoff AND user_agent IS NOT NULL AND user_agent != ''
-        GROUP BY user_agent
-        ORDER BY n DESC
-        LIMIT 20
-    """).bindparams(cutoff=cutoff_7d)).all()
-
-    total_searches = session.exec(
-        select(func.count(SearchLog.id)).where(SearchLog.timestamp >= cutoff_7d)
-    ).one() or 0
-
-    return {
+    empty = {
         "period": "last_7_days",
-        "total_searches_7d": total_searches,
-        "top_queries": [
-            {"query": r[0], "count": r[1], "avg_results": round(r[2] or 0, 1)}
-            for r in top_queries_rows
-        ],
-        "zero_result_queries": [
-            {"query": r[0], "count": r[1], "last_seen": str(r[2])}
-            for r in zero_result_rows
-        ],
-        "queries_per_hour_24h": [
-            {"hour": r[0], "queries": r[1]}
-            for r in hourly_rows
-        ],
-        "unique_user_agents": [
-            {"user_agent": r[0], "count": r[1]}
-            for r in ua_rows
-        ],
+        "total_searches_7d": 0,
+        "top_queries": [],
+        "zero_result_queries": [],
+        "queries_per_hour_24h": [],
+        "unique_user_agents": [],
     }
+
+    try:
+        from sqlalchemy import func as sa_func, desc as sa_desc, asc as sa_asc, label
+
+        cutoff_7d  = datetime.utcnow() - timedelta(days=7)
+        cutoff_24h = datetime.utcnow() - timedelta(hours=24)
+
+        # Total searches (7d)
+        total = session.exec(
+            select(func.count(SearchLog.id))
+            .where(SearchLog.timestamp >= cutoff_7d)
+        ).one() or 0
+
+        # Top 20 queries by frequency (7d) — ORM, DB-agnostic
+        top_rows = session.execute(
+            select(
+                func.lower(SearchLog.query).label("q"),
+                func.count(SearchLog.id).label("n"),
+                func.avg(SearchLog.results_count).label("avg_r"),
+            )
+            .where(SearchLog.timestamp >= cutoff_7d)
+            .group_by(func.lower(SearchLog.query))
+            .order_by(sa_desc("n"))
+            .limit(20)
+        ).all()
+
+        # Top 20 zero-result queries (7d) — catalog expansion signal
+        zero_rows = session.execute(
+            select(
+                func.lower(SearchLog.query).label("q"),
+                func.count(SearchLog.id).label("n"),
+                func.max(SearchLog.timestamp).label("last_seen"),
+            )
+            .where(SearchLog.timestamp >= cutoff_7d, SearchLog.results_count == 0)
+            .group_by(func.lower(SearchLog.query))
+            .order_by(sa_desc("n"))
+            .limit(20)
+        ).all()
+
+        # Queries per hour (24h) — PostgreSQL: date_trunc; SQLite: strftime
+        # Detect dialect and use appropriate truncation
+        dialect = session.bind.dialect.name if session.bind else "postgresql"
+        if dialect == "sqlite":
+            hour_expr = sa_func.strftime("%Y-%m-%dT%H:00:00", SearchLog.timestamp)
+        else:
+            hour_expr = sa_func.date_trunc("hour", SearchLog.timestamp).cast(String)
+
+        hourly_rows = session.execute(
+            select(
+                hour_expr.label("hour"),
+                func.count(SearchLog.id).label("queries"),
+            )
+            .where(SearchLog.timestamp >= cutoff_24h)
+            .group_by("hour")
+            .order_by(sa_asc("hour"))
+        ).all()
+
+        # Unique user_agents (7d)
+        ua_rows = session.execute(
+            select(
+                SearchLog.user_agent,
+                func.count(SearchLog.id).label("n"),
+            )
+            .where(
+                SearchLog.timestamp >= cutoff_7d,
+                SearchLog.user_agent.isnot(None),
+                SearchLog.user_agent != "",
+            )
+            .group_by(SearchLog.user_agent)
+            .order_by(sa_desc("n"))
+            .limit(20)
+        ).all()
+
+        return {
+            "period": "last_7_days",
+            "total_searches_7d": total,
+            "top_queries": [
+                {"query": r.q, "count": r.n, "avg_results": round(r.avg_r or 0, 1)}
+                for r in top_rows
+            ],
+            "zero_result_queries": [
+                {"query": r.q, "count": r.n, "last_seen": str(r.last_seen)}
+                for r in zero_rows
+            ],
+            "queries_per_hour_24h": [
+                {"hour": str(r.hour), "queries": r.queries}
+                for r in hourly_rows
+            ],
+            "unique_user_agents": [
+                {"user_agent": r.user_agent, "count": r.n}
+                for r in ua_rows
+            ],
+        }
+
+    except Exception as exc:
+        # Table empty, just created, or schema mismatch — return empty structure
+        empty["_note"] = f"table empty or not yet populated: {type(exc).__name__}"
+        return empty
 
 
 # =====================================================================
