@@ -2128,15 +2128,54 @@ def _build_dashboard_ctx(session: Session) -> dict:
     }
 
 
+_ADMIN_LOGIN_HTML = (
+    '<!DOCTYPE html><html lang="en"><head>'
+    '<meta charset="UTF-8">'
+    '<title>AIAAM Admin</title>'
+    '<style>'
+    'body{font-family:system-ui,sans-serif;background:#f5f6f8;display:flex;'
+    'align-items:center;justify-content:center;height:100vh;margin:0;}'
+    '.box{background:#fff;border:1px solid #e5e7eb;border-radius:8px;'
+    'padding:40px 48px;min-width:320px;}'
+    'h2{font-size:1rem;color:#111827;margin-bottom:20px;}'
+    'input{width:100%;border:1px solid #d1d5db;border-radius:4px;'
+    'padding:9px 12px;font-size:14px;margin-bottom:12px;box-sizing:border-box;}'
+    'button{background:#2563eb;color:#fff;border:none;border-radius:4px;'
+    'padding:9px 24px;font-size:14px;cursor:pointer;width:100%;}'
+    'button:hover{background:#1d4ed8;}'
+    '#err{color:#dc2626;font-size:0.82rem;margin-top:8px;min-height:18px;}'
+    '</style></head><body>'
+    '<div class="box">'
+    '<h2>AIAAM Admin</h2>'
+    '<input type="password" id="s" placeholder="Admin secret" autofocus>'
+    '<button onclick="go()">Entrar</button>'
+    '<div id="err"></div>'
+    '</div>'
+    '<script>'
+    'document.getElementById("s").addEventListener("keydown",function(e){if(e.key==="Enter")go();});'
+    'function go(){'
+    '  var v=document.getElementById("s").value;'
+    '  if(!v){document.getElementById("err").textContent="Introduce el secret.";return;}'
+    '  window.location.href="/admin/dashboard?secret="+encodeURIComponent(v);'
+    '}'
+    '</script>'
+    '</body></html>'
+)
+
+
 @app.get("/admin/dashboard", response_class=HTMLResponse, include_in_schema=False)
 def admin_dashboard(
     request: Request,
-    token: Optional[str] = Query(default=None),
+    secret: Optional[str] = Query(default=None),
     session: Session = Depends(get_session),
 ):
-    """Original operational dashboard — traffic, tools, revenue, tax logs."""
-    if token != ADMIN_SECRET:
-        raise HTTPException(status_code=404, detail="Not Found")
+    """Original operational dashboard — traffic, tools, revenue, tax logs.
+    No secret → shows login form. Wrong secret → 403. Correct → full dashboard.
+    """
+    if secret is None:
+        return HTMLResponse(content=_ADMIN_LOGIN_HTML)
+    if secret != ADMIN_SECRET:
+        raise HTTPException(status_code=403, detail="Forbidden")
     ctx = _build_dashboard_ctx(session)
     ctx["request"] = request
     response = templates.TemplateResponse("dashboard.html", ctx)
