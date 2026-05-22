@@ -1305,6 +1305,251 @@ def admin_stats(
     return get_stats(session)
 
 
+@app.get("/admin/dashboard", response_class=HTMLResponse)
+def admin_dashboard(
+    s: Optional[str] = None,          # secret via query param for browser access
+    x_admin_secret: Optional[str] = Header(default=None, alias="X-Admin-Secret"),
+):
+    """
+    Admin dashboard — protected by admin secret.
+    Browser: GET /admin/dashboard?s=<your-secret>
+    Curl:    curl /admin/dashboard -H 'X-Admin-Secret: <your-secret>'
+    """
+    secret = s or x_admin_secret or ""
+    if secret != ADMIN_SECRET:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    # Secret is embedded in the JS so the auto-refresh can call /admin/search-trends.
+    # This is safe: the page is already auth-gated and the secret is in the URL anyway.
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AIAAM Search Dashboard</title>
+<style>
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{ font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+         background: #0d0d0d; color: #d0d0d0; font-size: 13px; line-height: 1.5; }}
+  header {{ padding: 16px 24px; border-bottom: 1px solid #1e1e1e;
+            display: flex; justify-content: space-between; align-items: baseline; }}
+  header h1 {{ color: #fff; font-size: 1rem; font-weight: 600; }}
+  header .meta {{ color: #444; font-size: 0.78rem; }}
+  .page {{ max-width: 1100px; margin: 0 auto; padding: 24px; }}
+  .cards {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 28px; }}
+  .card {{ background: #111; border: 1px solid #1e1e1e; border-radius: 5px; padding: 16px 20px; }}
+  .card .n {{ font-size: 2rem; font-weight: 700; color: #fff; }}
+  .card .l {{ color: #555; font-size: 0.75rem; margin-top: 2px; }}
+  section {{ margin-bottom: 32px; }}
+  section h2 {{ font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em;
+                color: #555; margin-bottom: 10px; border-bottom: 1px solid #1a1a1a;
+                padding-bottom: 6px; }}
+  section h2 .badge {{ font-size: 0.7rem; background: #1a3a1a; color: #5a9a5a;
+                        border: 1px solid #2a5a2a; border-radius: 3px;
+                        padding: 1px 6px; margin-left: 8px; text-transform: none;
+                        letter-spacing: 0; vertical-align: middle; }}
+  table {{ width: 100%; border-collapse: collapse; }}
+  th {{ text-align: left; color: #444; font-weight: 400; padding: 4px 12px 8px 0;
+        font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; }}
+  td {{ padding: 5px 12px 5px 0; border-top: 1px solid #151515; vertical-align: top; }}
+  tr:hover td {{ background: #111; }}
+  .query-text {{ color: #aaa; }}
+  .zero-text {{ color: #e07a5f; }}
+  .num {{ color: #7eb8f7; text-align: right; padding-right: 24px; }}
+  .dim {{ color: #444; }}
+  .bar-wrap {{ overflow-x: auto; }}
+  svg text {{ font-family: inherit; }}
+  .agents-list {{ display: flex; flex-direction: column; gap: 4px; }}
+  .agent-row {{ display: flex; gap: 12px; }}
+  .agent-ua {{ color: #777; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+               max-width: 700px; flex: 1; }}
+  .agent-n {{ color: #7eb8f7; flex-shrink: 0; width: 40px; text-align: right; }}
+  #refresh-bar {{ height: 2px; background: #1a3a5c; transition: width linear; }}
+  .empty {{ color: #333; padding: 12px 0; font-style: italic; }}
+</style>
+</head>
+<body>
+
+<div id="refresh-bar" style="width:100%"></div>
+<header>
+  <h1>AIAAM / Search Dashboard</h1>
+  <div class="meta">
+    <span id="last-updated">loading…</span> &nbsp;·&nbsp;
+    auto-refresh <span id="countdown">60</span>s
+  </div>
+</header>
+
+<div class="page">
+  <div class="cards">
+    <div class="card"><div class="n" id="c-total">—</div><div class="l">searches · last 7 days</div></div>
+    <div class="card"><div class="n" id="c-top">—</div><div class="l">unique queries</div></div>
+    <div class="card"><div class="n" id="c-zero" style="color:#e07a5f">—</div><div class="l">zero-result queries</div></div>
+  </div>
+
+  <section>
+    <h2>Zero-result queries <span class="badge">catalog expansion signal</span></h2>
+    <table id="tbl-zero">
+      <thead><tr><th>Query</th><th class="num">Times searched</th><th>Last seen</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Top queries · last 7 days</h2>
+    <table id="tbl-top">
+      <thead><tr><th>Query</th><th class="num">Count</th><th class="num">Avg results</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Queries per hour · last 24h</h2>
+    <div class="bar-wrap"><svg id="chart" width="900" height="140"></svg></div>
+  </section>
+
+  <section>
+    <h2>User agents · last 7 days</h2>
+    <div class="agents-list" id="agents-list"></div>
+  </section>
+</div>
+
+<script>
+const SECRET = {json.dumps(secret)};
+let countdown = 60;
+let countdownTimer = null;
+let barTimer = null;
+
+async function load() {{
+  try {{
+    const r = await fetch('/admin/search-trends', {{
+      headers: {{ 'X-Admin-Secret': SECRET }}
+    }});
+    if (!r.ok) {{ document.body.innerHTML = '<p style="color:#e07a5f;padding:24px">Error ' + r.status + '</p>'; return; }}
+    const d = await r.json();
+    render(d);
+    document.getElementById('last-updated').textContent =
+      'updated ' + new Date().toLocaleTimeString();
+  }} catch(e) {{
+    document.getElementById('last-updated').textContent = 'fetch error: ' + e.message;
+  }}
+}}
+
+function render(d) {{
+  const total  = d.total_searches_7d || 0;
+  const top    = d.top_queries || [];
+  const zero   = d.zero_result_queries || [];
+  const hourly = d.queries_per_hour_24h || [];
+  const agents = d.unique_user_agents || [];
+
+  document.getElementById('c-total').textContent = total.toLocaleString();
+  document.getElementById('c-top').textContent   = top.length;
+  document.getElementById('c-zero').textContent  = zero.length;
+
+  // Zero-result table
+  const zBody = document.querySelector('#tbl-zero tbody');
+  if (zero.length === 0) {{
+    zBody.innerHTML = '<tr><td colspan="3" class="empty">No zero-result queries yet.</td></tr>';
+  }} else {{
+    zBody.innerHTML = zero.map(r =>
+      `<tr><td class="zero-text">${{esc(r.query)}}</td>` +
+      `<td class="num">${{r.count}}</td>` +
+      `<td class="dim">${{r.last_seen ? r.last_seen.slice(0,16).replace('T',' ') : ''}}</td></tr>`
+    ).join('');
+  }}
+
+  // Top queries table
+  const tBody = document.querySelector('#tbl-top tbody');
+  if (top.length === 0) {{
+    tBody.innerHTML = '<tr><td colspan="3" class="empty">No queries yet.</td></tr>';
+  }} else {{
+    tBody.innerHTML = top.map(r =>
+      `<tr><td class="query-text">${{esc(r.query)}}</td>` +
+      `<td class="num">${{r.count}}</td>` +
+      `<td class="num dim">${{r.avg_results}}</td></tr>`
+    ).join('');
+  }}
+
+  // Hourly SVG bar chart
+  drawChart(hourly);
+
+  // User agents
+  const aList = document.getElementById('agents-list');
+  if (agents.length === 0) {{
+    aList.innerHTML = '<span class="empty">No user agents recorded yet.</span>';
+  }} else {{
+    aList.innerHTML = agents.map(a =>
+      `<div class="agent-row">` +
+      `<span class="agent-n">${{a.count}}</span>` +
+      `<span class="agent-ua" title="${{esc(a.user_agent)}}">${{esc(a.user_agent)}}</span>` +
+      `</div>`
+    ).join('');
+  }}
+}}
+
+function drawChart(hourly) {{
+  const svg = document.getElementById('chart');
+  if (!hourly.length) {{
+    svg.innerHTML = '<text x="12" y="70" fill="#333" font-size="12">No data yet.</text>';
+    return;
+  }}
+  const W = 900, H = 120, pad = {{ l: 40, r: 12, t: 10, b: 28 }};
+  const maxQ = Math.max(...hourly.map(h => h.queries), 1);
+  const bw   = Math.max(4, Math.floor((W - pad.l - pad.r) / hourly.length) - 2);
+  const chartH = H - pad.t - pad.b;
+
+  let bars = '';
+  let labels = '';
+  hourly.forEach((h, i) => {{
+    const x   = pad.l + i * ((W - pad.l - pad.r) / hourly.length);
+    const bh  = Math.max(2, Math.round((h.queries / maxQ) * chartH));
+    const y   = pad.t + chartH - bh;
+    bars += `<rect x="${{x}}" y="${{y}}" width="${{bw}}" height="${{bh}}" fill="#1a3a5c" rx="1">` +
+            `<title>${{h.hour ? h.hour.slice(11,16) : ''}} — ${{h.queries}} queries</title></rect>`;
+    // Label every 4th bar
+    if (i % 4 === 0 && h.hour) {{
+      const lbl = h.hour.slice(11, 16);
+      labels += `<text x="${{x}}" y="${{H - 4}}" fill="#333" font-size="9" text-anchor="middle">${{lbl}}</text>`;
+    }}
+  }});
+  // Y-axis
+  const axis = `<line x1="${{pad.l - 4}}" y1="${{pad.t}}" x2="${{pad.l - 4}}" y2="${{pad.t + chartH}}" stroke="#222"/>` +
+               `<text x="${{pad.l - 6}}" y="${{pad.t + 6}}" fill="#333" font-size="9" text-anchor="end">${{maxQ}}</text>` +
+               `<text x="${{pad.l - 6}}" y="${{pad.t + chartH}}" fill="#333" font-size="9" text-anchor="end">0</text>`;
+  svg.innerHTML = axis + bars + labels;
+}}
+
+function esc(s) {{
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}}
+
+function startCountdown() {{
+  clearInterval(countdownTimer);
+  clearTimeout(barTimer);
+  countdown = 60;
+  const bar = document.getElementById('refresh-bar');
+  bar.style.transition = 'none';
+  bar.style.width = '100%';
+  requestAnimationFrame(() => {{
+    bar.style.transition = 'width 60s linear';
+    bar.style.width = '0%';
+  }});
+  countdownTimer = setInterval(() => {{
+    countdown--;
+    document.getElementById('countdown').textContent = countdown;
+    if (countdown <= 0) {{
+      clearInterval(countdownTimer);
+      load().then(startCountdown);
+    }}
+  }}, 1000);
+}}
+
+load().then(startCountdown);
+</script>
+</body>
+</html>"""
+    return HTMLResponse(content=html)
+
+
 @app.get("/admin/search-trends")
 def search_trends(
     session: Session = Depends(get_session),
