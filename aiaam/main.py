@@ -44,9 +44,11 @@ ADMIN_INTEL_KEY = os.getenv("ADMIN_INTEL_KEY", ADMIN_SECRET)
 
 # ── Agent classifier ──────────────────────────────────────────────────
 _ELITE_UA = re.compile(
-    r"(github-copilot|cursor|claudebot|claude-web|anthropic-ai|gptbot|"
-    r"vscode-agent|gemini-bot|cohere-ai|perplexitybot|bingbot|ccbot|"
-    r"deepseekbot|oai-searchbot|fetcher)",
+    # Only genuine AI coding agents / LLM-powered clients.
+    # NOT generic crawlers (bingbot, ccbot, fetcher) — those are web scrapers.
+    r"(github-copilot|cursor[\s/]|claudebot|claude-web|anthropic-ai|"
+    r"openai-agent|gpt-4|vscode-agent|gemini-bot|cohere-ai|"
+    r"deepseek-agent|oai-searchbot|claude-code|windsurf|aider)",
     re.IGNORECASE,
 )
 
