@@ -7,7 +7,6 @@
 <title>AIAAM Command Center</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
-/* ── Reset & Base ─────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
   --bg:        #F2F2F7;
@@ -23,14 +22,13 @@
   --yellow:    #FFCC00;
   --purple:    #AF52DE;
   --teal:      #5AC8FA;
+  --indigo:    #5856D6;
   --radius:    14px;
   --shadow:    0 1px 4px rgba(0,0,0,.08), 0 0 0 1px rgba(0,0,0,.04);
-  --shadow-lg: 0 4px 20px rgba(0,0,0,.1);
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
 }
 body { font-family: var(--font); background: var(--bg); color: var(--text1); font-size: 15px; line-height: 1.5; }
 
-/* ── Layout ───────────────────────────────────────────────────── */
 .topbar {
   background: rgba(255,255,255,.85);
   backdrop-filter: saturate(180%) blur(20px);
@@ -41,182 +39,154 @@ body { font-family: var(--font); background: var(--bg); color: var(--text1); fon
   display: flex;
   align-items: center;
   justify-content: space-between;
-  position: sticky;
-  top: 0;
-  z-index: 100;
+  position: sticky; top: 0; z-index: 100;
 }
 .topbar-brand { font-weight: 700; font-size: 17px; letter-spacing: -.3px; }
 .topbar-brand span { color: var(--blue); }
 .topbar-meta { font-size: 12px; color: var(--text2); }
-.topbar-actions { display: flex; gap: 8px; align-items: center; }
-
-.btn {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 7px 14px; border-radius: 9px; font-size: 13px; font-weight: 500;
-  border: none; cursor: pointer; transition: opacity .15s;
-}
-.btn:hover { opacity: .8; }
-.btn-primary { background: var(--blue); color: #fff; }
+.btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px;
+       border-radius: 9px; font-size: 13px; font-weight: 500; border: none; cursor: pointer; }
 .btn-ghost { background: transparent; color: var(--text2); border: 1px solid var(--border); }
+.main { max-width: 1320px; margin: 0 auto; padding: 24px 20px 60px; }
 
-.main { max-width: 1280px; margin: 0 auto; padding: 24px 20px 60px; }
+/* KPI grid */
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(155px, 1fr)); gap: 12px; margin-bottom: 24px; }
+.kpi-card { background: var(--surface); border-radius: var(--radius); padding: 16px 18px; box-shadow: var(--shadow); }
+.kpi-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .7px; color: var(--text2); margin-bottom: 7px; }
+.kpi-value { font-size: 30px; font-weight: 700; letter-spacing: -1px; line-height: 1; }
+.kpi-sub   { font-size: 11px; color: var(--text2); margin-top: 4px; }
+.kpi-pill  { display: inline-block; font-size: 10px; font-weight: 600; padding: 1px 7px;
+             border-radius: 20px; margin-right: 4px; vertical-align: middle; }
 
-/* ── Toggle ───────────────────────────────────────────────────── */
-.toggle-group {
-  display: inline-flex; background: var(--border); border-radius: 8px; padding: 2px;
-}
-.toggle-group button {
-  padding: 4px 12px; border: none; background: transparent;
-  border-radius: 6px; font-size: 12px; font-weight: 500; cursor: pointer; color: var(--text2);
-}
-.toggle-group button.active { background: #fff; color: var(--text1); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
-
-/* ── KPI Cards ────────────────────────────────────────────────── */
-.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-bottom: 24px; }
-.kpi-card {
-  background: var(--surface); border-radius: var(--radius); padding: 18px 20px;
-  box-shadow: var(--shadow);
-}
-.kpi-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .6px; color: var(--text2); margin-bottom: 8px; }
-.kpi-value { font-size: 32px; font-weight: 700; letter-spacing: -1px; line-height: 1; }
-.kpi-sub { font-size: 12px; color: var(--text2); margin-top: 4px; }
-.kpi-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
-
-/* ── Section titles ───────────────────────────────────────────── */
+/* Section */
 .section { margin-bottom: 28px; }
 .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
-.section-title { font-size: 17px; font-weight: 700; letter-spacing: -.3px; }
-
-/* ── Cards ────────────────────────────────────────────────────── */
-.card {
-  background: var(--surface); border-radius: var(--radius);
-  box-shadow: var(--shadow); overflow: hidden;
-}
+.section-title  { font-size: 17px; font-weight: 700; letter-spacing: -.3px; }
+.card { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
 .card-header { padding: 16px 20px 0; display: flex; align-items: center; justify-content: space-between; }
-.card-title { font-size: 13px; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: .5px; }
-.card-body { padding: 16px 20px 20px; }
+.card-title  { font-size: 12px; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: .5px; }
+.card-body   { padding: 16px 20px 20px; }
+.chart-grid  { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; margin-bottom: 24px; }
+.chart-wrap  { position: relative; height: 240px; }
 
-.chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; margin-bottom: 24px; }
-.chart-wrap { position: relative; height: 240px; }
+/* Toggle */
+.toggle-group { display: inline-flex; background: var(--border); border-radius: 8px; padding: 2px; }
+.toggle-group button { padding: 4px 12px; border: none; background: transparent;
+  border-radius: 6px; font-size: 12px; font-weight: 500; cursor: pointer; color: var(--text2); }
+.toggle-group button.active { background: #fff; color: var(--text1); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
 
-/* ── Health Grid ──────────────────────────────────────────────── */
-.health-grid-wrap { display: flex; flex-wrap: wrap; gap: 6px; }
-.hg-cell {
-  width: 34px; height: 34px; border-radius: 7px; cursor: pointer;
-  transition: transform .12s;
-  position: relative;
+/* Visitor table badges */
+.badge {
+  display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 8px;
+  border-radius: 20px; white-space: nowrap;
 }
-.hg-cell:hover { transform: scale(1.15); z-index: 10; }
+.badge-elite      { background: rgba(0,122,255,.12);  color: var(--blue);   }
+.badge-ai_crawler { background: rgba(88,86,214,.12);  color: var(--indigo); }
+.badge-seo_crawler{ background: rgba(255,149,0,.12);  color: var(--orange); }
+.badge-human      { background: rgba(52,199,89,.12);  color: var(--green);  }
+.badge-unknown    { background: var(--bg);             color: var(--text3);  }
+
+/* Health Grid */
+.health-grid-wrap { display: flex; flex-wrap: wrap; gap: 6px; }
+.hg-cell { width: 32px; height: 32px; border-radius: 6px; cursor: pointer; transition: transform .12s; position: relative; }
+.hg-cell:hover { transform: scale(1.2); z-index: 10; }
 .hg-cell.pass       { background: var(--green); }
 .hg-cell.fail       { background: var(--red); }
 .hg-cell.partial    { background: var(--orange); }
 .hg-cell.unverified { background: var(--border); }
-
-.hg-tooltip {
-  display: none; position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+.hg-tooltip { display: none; position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
   background: var(--text1); color: #fff; font-size: 11px; white-space: nowrap;
-  padding: 5px 9px; border-radius: 7px; z-index: 20; pointer-events: none;
-}
+  padding: 5px 9px; border-radius: 7px; z-index: 20; pointer-events: none; }
 .hg-cell:hover .hg-tooltip { display: block; }
-
-.hg-legend { display: flex; gap: 16px; margin-top: 14px; font-size: 12px; color: var(--text2); }
+.hg-legend { display: flex; gap: 16px; margin-top: 12px; font-size: 12px; color: var(--text2); }
 .hg-legend-item { display: flex; align-items: center; gap: 6px; }
-.hg-legend-dot { width: 10px; height: 10px; border-radius: 3px; }
+.hg-legend-dot  { width: 10px; height: 10px; border-radius: 3px; }
 
-/* ── Agent Briefing Timeline ──────────────────────────────────── */
-.timeline { display: flex; flex-direction: column; gap: 0; }
-.tl-item {
-  display: grid;
-  grid-template-columns: 32px 1fr;
-  gap: 0 14px;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--border);
-}
+/* Agent timeline */
+.timeline { display: flex; flex-direction: column; }
+.tl-item { display: grid; grid-template-columns: 28px 1fr; gap: 0 12px;
+  padding: 10px 0; border-bottom: 1px solid var(--border); }
 .tl-item:last-child { border-bottom: none; }
-.tl-dot-wrap { display: flex; flex-direction: column; align-items: center; padding-top: 3px; }
-.tl-dot {
-  width: 10px; height: 10px; border-radius: 50%;
-  flex-shrink: 0;
-}
+.tl-dot-wrap { display: flex; flex-direction: column; align-items: center; padding-top: 4px; }
+.tl-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
 .tl-dot.active  { background: var(--green); box-shadow: 0 0 0 3px rgba(52,199,89,.2); }
 .tl-dot.standby { background: var(--border); }
 .tl-line { flex: 1; width: 1px; background: var(--border); margin: 4px 0; }
 .tl-item:last-child .tl-line { display: none; }
-.tl-content {}
-.tl-top { display: flex; align-items: baseline; gap: 8px; }
-.tl-agent { font-weight: 600; font-size: 14px; }
+.tl-top  { display: flex; align-items: baseline; gap: 8px; }
+.tl-agent{ font-weight: 600; font-size: 14px; }
 .tl-code { font-size: 11px; color: var(--text2); background: var(--bg); padding: 1px 6px; border-radius: 5px; }
-.tl-count { font-weight: 700; font-size: 18px; letter-spacing: -.5px; margin-left: auto; }
-.tl-count.standby { color: var(--text3); font-weight: 400; font-size: 13px; }
+.tl-count{ font-weight: 700; font-size: 17px; letter-spacing: -.5px; margin-left: auto; }
+.tl-count.standby { color: var(--text3); font-weight: 400; font-size: 12px; }
 .tl-desc { font-size: 12px; color: var(--text2); margin-top: 2px; }
-.tl-unit { font-size: 12px; color: var(--text2); }
 
-/* ── Revenue Tracker ──────────────────────────────────────────── */
+/* Revenue */
 .rev-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 1px; background: var(--border); border-radius: var(--radius); overflow: hidden; }
 .rev-cell { background: var(--surface); padding: 16px 18px; }
-.rev-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; color: var(--text2); margin-bottom: 6px; }
-.rev-value { font-size: 26px; font-weight: 700; letter-spacing: -.8px; }
+.rev-label{ font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; color: var(--text2); margin-bottom: 6px; }
+.rev-value{ font-size: 24px; font-weight: 700; letter-spacing: -.8px; }
 .rev-note { font-size: 11px; color: var(--text3); margin-top: 3px; }
 
-/* ── Two-col layout ───────────────────────────────────────────── */
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
 @media (max-width: 760px) {
   .two-col { grid-template-columns: 1fr; }
   .chart-grid { grid-template-columns: 1fr; }
   .kpi-grid { grid-template-columns: repeat(2, 1fr); }
 }
-
-/* ── Print styles ─────────────────────────────────────────────── */
 @media print {
-  .no-print, .topbar-actions { display: none !important; }
-  .topbar { position: static; backdrop-filter: none; box-shadow: none; border-bottom: 1px solid var(--border); }
-  body { background: white; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .card, .kpi-card { box-shadow: none; border: 1px solid var(--border); page-break-inside: avoid; }
-  .main { padding: 16px; }
-  .chart-grid, .two-col { page-break-inside: avoid; }
+  .topbar { position: static; backdrop-filter: none; }
+  body { background: white; }
+  .card, .kpi-card { box-shadow: none; border: 1px solid var(--border); }
 }
 </style>
 </head>
 <body>
 
-<!-- ── Top Bar ────────────────────────────────────────────────── -->
-<div class="topbar no-print-bg">
+<div class="topbar">
   <div style="display:flex;align-items:center;gap:16px;">
     <div class="topbar-brand">AIAAM <span>Command Center</span></div>
     <div class="topbar-meta">Updated {{ now }}</div>
   </div>
-  <div class="topbar-actions">
-    <button class="btn btn-ghost no-print" onclick="window.print()">Export PDF</button>
-  </div>
+  <button class="btn btn-ghost" onclick="window.print()">Export PDF</button>
 </div>
 
 <div class="main">
 
-<!-- ── KPI Row ───────────────────────────────────────────────── -->
+<!-- KPI Row -->
 <div class="kpi-grid">
   <div class="kpi-card">
     <div class="kpi-label">Verified Tools</div>
     <div class="kpi-value" style="color:var(--green)">{{ verified_count }}</div>
-    <div class="kpi-sub"><span class="kpi-dot" style="background:var(--red)"></span>{{ failed_count }} failed &nbsp;·&nbsp; {{ pending_count }} pending</div>
+    <div class="kpi-sub">
+      <span class="kpi-pill" style="background:rgba(255,59,48,.1);color:var(--red)">{{ failed_count }} failed</span>
+      {{ pending_count }} pending
+    </div>
   </div>
+
   <div class="kpi-card">
     <div class="kpi-label">Requests · 24 h</div>
     <div class="kpi-value">{{ req_24h }}</div>
     <div class="kpi-sub">{{ req_7d }} in last 7 days</div>
   </div>
-  <div class="kpi-card">
-    <div class="kpi-label">Elite Agents · 7 d</div>
+
+  <div class="kpi-card" title="Actual AI coding assistants calling the API — the holy grail">
+    <div class="kpi-label">🤖 Elite AI Agents · 7 d</div>
     <div class="kpi-value" style="color:var(--blue)">{{ elite_count }}</div>
-    <div class="kpi-sub">
-      <span class="kpi-dot" style="background:var(--text2)"></span>{{ human_count }} human &nbsp;·&nbsp;
-      <span class="kpi-dot" style="background:var(--border)"></span>{{ unknown_count }} bot/unknown
-    </div>
+    <div class="kpi-sub">Cursor, Copilot, Claude Code…</div>
   </div>
+
+  <div class="kpi-card" title="AI companies (OpenAI, Perplexity…) crawling AIAAM — gets us into their indexes">
+    <div class="kpi-label">🕷 AI Crawlers · 7 d</div>
+    <div class="kpi-value" style="color:var(--indigo)">{{ ai_crawler_count }}</div>
+    <div class="kpi-sub">GPTbot, Perplexitybot… <span style="color:var(--green);font-weight:600;">↑ good</span></div>
+  </div>
+
   <div class="kpi-card">
-    <div class="kpi-label">Tokens Saved · 7 d <span style="font-size:10px;color:var(--text3);font-weight:400;">(est.)</span></div>
+    <div class="kpi-label">Tokens Saved · 7 d <span style="font-size:9px;color:var(--text3)">(est.)</span></div>
     <div class="kpi-value" style="color:var(--green)">{{ tokens_saved_est }}</div>
     <div class="kpi-sub">{{ tokens_saved_note }}</div>
   </div>
+
   <div class="kpi-card">
     <div class="kpi-label">Tax Transactions · 7 d</div>
     <div class="kpi-value" style="color:var(--blue)">{{ tax_count_7d }}</div>
@@ -224,12 +194,12 @@ body { font-family: var(--font); background: var(--bg); color: var(--text1); fon
   </div>
 </div>
 
-<!-- ── Traffic + Elite Adoption ──────────────────────────────── -->
+<!-- Traffic + AI Crawler breakdown -->
 <div class="chart-grid section">
   <div class="card">
     <div class="card-header">
       <span class="card-title">Traffic Volume</span>
-      <div class="toggle-group no-print" id="traffic-toggle">
+      <div class="toggle-group" id="traffic-toggle">
         <button class="active" onclick="switchTraffic('7d',this)">7 days</button>
         <button onclick="switchTraffic('24h',this)">24 h</button>
       </div>
@@ -240,71 +210,84 @@ body { font-family: var(--font); background: var(--bg); color: var(--text1); fon
   </div>
 
   <div class="card">
-    <div class="card-header"><span class="card-title">Elite Agent Adoption</span></div>
+    <div class="card-header">
+      <span class="card-title">AI Crawler Breakdown · 7 d</span>
+      <span style="font-size:11px;color:var(--indigo);font-weight:600;">↑ being indexed by AI companies</span>
+    </div>
     <div class="card-body">
-      <div class="chart-wrap"><canvas id="eliteChart"></canvas></div>
+      <div class="chart-wrap"><canvas id="aiCrawlerChart"></canvas></div>
     </div>
   </div>
 </div>
 
-<!-- ── Top Tools + LLM Battleground ──────────────────────────── -->
+<!-- Traffic breakdown + Top Tools -->
 <div class="chart-grid section">
+  <div class="card">
+    <div class="card-header"><span class="card-title">Traffic Breakdown · 7 d</span></div>
+    <div class="card-body">
+      <div class="chart-wrap"><canvas id="llmChart"></canvas></div>
+    </div>
+  </div>
+
   <div class="card">
     <div class="card-header"><span class="card-title">Top 10 Tools · 7 days</span></div>
     <div class="card-body">
       <div class="chart-wrap" style="height:280px"><canvas id="topToolsChart"></canvas></div>
     </div>
   </div>
-
-  <div class="card">
-    <div class="card-header"><span class="card-title">LLM Battleground · 7 days</span></div>
-    <div class="card-body">
-      <div class="chart-wrap"><canvas id="llmChart"></canvas></div>
-    </div>
-  </div>
 </div>
 
-<!-- ── Visitor Intelligence Table ───────────────────────────── -->
+<!-- Visitor Intelligence Table -->
 <div class="section">
   <div class="section-header">
     <span class="section-title">Visitor Intelligence · Last 7 days</span>
-    <span style="font-size:12px;color:var(--text2)">Classified by User-Agent</span>
+    <span style="font-size:12px;color:var(--text2)">5-tier classification by User-Agent</span>
   </div>
   <div class="card">
     <div class="card-body" style="padding:0;">
       <table style="width:100%;border-collapse:collapse;font-size:13px;">
         <thead>
-          <tr style="border-bottom:1px solid var(--border);background:var(--bg);">
-            <th style="text-align:left;padding:10px 20px;font-weight:600;color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;">Source</th>
-            <th style="text-align:left;padding:10px 12px;font-weight:600;color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;">Type</th>
-            <th style="text-align:left;padding:10px 12px;font-weight:600;color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;max-width:280px;">User-Agent sample</th>
-            <th style="text-align:right;padding:10px 20px;font-weight:600;color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;">Requests</th>
+          <tr style="border-bottom:2px solid var(--border);background:var(--bg);">
+            <th style="text-align:left;padding:10px 20px;font-weight:600;color:var(--text2);font-size:10px;text-transform:uppercase;letter-spacing:.5px;">Source</th>
+            <th style="text-align:left;padding:10px 12px;font-weight:600;color:var(--text2);font-size:10px;text-transform:uppercase;letter-spacing:.5px;">Type</th>
+            <th style="text-align:left;padding:10px 12px;font-weight:600;color:var(--text2);font-size:10px;text-transform:uppercase;letter-spacing:.5px;">User-Agent sample</th>
+            <th style="text-align:right;padding:10px 20px;font-weight:600;color:var(--text2);font-size:10px;text-transform:uppercase;letter-spacing:.5px;">Reqs · 7d</th>
           </tr>
         </thead>
         <tbody>
           {% for row in visitor_table %}
-          {% set is_elite = row.agent_type == 'elite' %}
-          <tr style="border-bottom:1px solid var(--border);{% if is_elite %}background:rgba(0,122,255,.03);{% endif %}">
-            <td style="padding:10px 20px;font-weight:{% if is_elite %}700{% else %}500{% endif %};">
-              {% if is_elite %}
-              <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--blue);margin-right:7px;flex-shrink:0;vertical-align:middle;box-shadow:0 0 0 3px rgba(0,122,255,.2);"></span>
-              {% elif row.agent_type == 'human' %}
-              <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--green);margin-right:7px;vertical-align:middle;"></span>
+          {% set t = row.agent_type %}
+          <tr style="border-bottom:1px solid var(--border);
+            {% if t == 'elite' %}background:rgba(0,122,255,.03);{% endif %}
+            {% if t == 'ai_crawler' %}background:rgba(88,86,214,.03);{% endif %}">
+            <td style="padding:10px 20px;font-weight:{% if t in ('elite','ai_crawler') %}700{% else %}500{% endif %};">
+              {% if t == 'elite' %}
+                <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--blue);margin-right:8px;vertical-align:middle;box-shadow:0 0 0 3px rgba(0,122,255,.2);"></span>
+              {% elif t == 'ai_crawler' %}
+                <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--indigo);margin-right:8px;vertical-align:middle;box-shadow:0 0 0 3px rgba(88,86,214,.2);"></span>
+              {% elif t == 'seo_crawler' %}
+                <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--orange);margin-right:8px;vertical-align:middle;"></span>
+              {% elif t == 'human' %}
+                <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);margin-right:8px;vertical-align:middle;"></span>
               {% else %}
-              <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--border);margin-right:7px;vertical-align:middle;"></span>
+                <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--border);margin-right:8px;vertical-align:middle;"></span>
               {% endif %}
               {{ row.source }}
             </td>
             <td style="padding:10px 12px;">
-              {% if is_elite %}
-              <span style="background:rgba(0,122,255,.1);color:var(--blue);padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;">Elite AI</span>
-              {% elif row.agent_type == 'human' %}
-              <span style="background:rgba(52,199,89,.1);color:var(--green);padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;">Human</span>
+              {% if t == 'elite' %}
+                <span class="badge badge-elite">🤖 Elite AI Agent</span>
+              {% elif t == 'ai_crawler' %}
+                <span class="badge badge-ai_crawler">🕷 AI Crawler</span>
+              {% elif t == 'seo_crawler' %}
+                <span class="badge badge-seo_crawler">🔍 SEO Crawler</span>
+              {% elif t == 'human' %}
+                <span class="badge badge-human">👤 Human</span>
               {% else %}
-              <span style="background:var(--bg);color:var(--text3);padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;">Bot/Unknown</span>
+                <span class="badge badge-unknown">❓ Bot/Unknown</span>
               {% endif %}
             </td>
-            <td style="padding:10px 12px;color:var(--text2);font-size:11px;font-family:monospace;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ row.ua_sample }}</td>
+            <td style="padding:10px 12px;color:var(--text2);font-size:11px;font-family:monospace;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ row.ua_sample }}</td>
             <td style="padding:10px 20px;text-align:right;font-weight:700;font-size:15px;font-variant-numeric:tabular-nums;">{{ row.count }}</td>
           </tr>
           {% endfor %}
@@ -313,11 +296,20 @@ body { font-family: var(--font); background: var(--bg); color: var(--text1); fon
           {% endif %}
         </tbody>
       </table>
+
+      <!-- Legend -->
+      <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:16px;flex-wrap:wrap;font-size:11px;color:var(--text2);">
+        <span><span class="badge badge-elite">🤖 Elite AI Agent</span> &nbsp;Cursor, Copilot, Claude Code — making API calls</span>
+        <span><span class="badge badge-ai_crawler">🕷 AI Crawler</span> &nbsp;GPTbot, Perplexitybot — indexing AIAAM content</span>
+        <span><span class="badge badge-seo_crawler">🔍 SEO Crawler</span> &nbsp;MJ12bot, Ahrefsbot — neutral</span>
+        <span><span class="badge badge-human">👤 Human</span> &nbsp;Real browsers (Chrome/Firefox ≥100)</span>
+        <span><span class="badge badge-unknown">❓ Bot/Unknown</span> &nbsp;Fake or old UAs</span>
+      </div>
     </div>
   </div>
 </div>
 
-<!-- ── Health Grid ────────────────────────────────────────────── -->
+<!-- Health Grid -->
 <div class="section">
   <div class="section-header">
     <span class="section-title">Health Grid — {{ verified_count }} Verified Tools</span>
@@ -337,7 +329,7 @@ body { font-family: var(--font); background: var(--bg); color: var(--text1); fon
       </div>
       <div class="hg-legend">
         <div class="hg-legend-item"><div class="hg-legend-dot" style="background:var(--green)"></div>Sandbox pass</div>
-        <div class="hg-legend-item"><div class="hg-legend-dot" style="background:var(--red)"></div>Sandbox fail</div>
+        <div class="hg-legend-item"><div class="hg-legend-dot" style="background:var(--red)"></div>Fail</div>
         <div class="hg-legend-item"><div class="hg-legend-dot" style="background:var(--orange)"></div>Partial</div>
         <div class="hg-legend-item"><div class="hg-legend-dot" style="background:var(--border)"></div>No check yet</div>
       </div>
@@ -345,10 +337,10 @@ body { font-family: var(--font); background: var(--bg); color: var(--text1); fon
   </div>
 </div>
 
-<!-- ── Two-col: Agent Briefing + Revenue ─────────────────────── -->
+<!-- Agent Briefing + Revenue -->
 <div class="two-col">
   <div class="section" style="margin-bottom:0">
-    <div class="section-header"><span class="section-title">Agent Daily Briefing — Last 24 h</span></div>
+    <div class="section-header"><span class="section-title">Agent Daily Briefing · 24 h</span></div>
     <div class="card">
       <div class="card-body" style="padding-top:8px;padding-bottom:8px;">
         <div class="timeline">
@@ -363,9 +355,9 @@ body { font-family: var(--font); background: var(--bg); color: var(--text1); fon
                 <span class="tl-agent">{{ ag.name }}</span>
                 <span class="tl-code">{{ ag.code }}</span>
                 {% if ag.ran_at %}
-                <span class="tl-count">{{ ag.count }}<span class="tl-unit"> {{ ag.unit }}</span></span>
+                <span class="tl-count">{{ ag.count }}<span style="font-size:11px;color:var(--text2);font-weight:400;"> {{ ag.unit }}</span></span>
                 {% else %}
-                <span class="tl-count standby">Local agent — logs not synced to Railway</span>
+                <span class="tl-count standby">logs not synced</span>
                 {% endif %}
               </div>
               <div class="tl-desc">{{ ag.desc }}
@@ -392,17 +384,17 @@ body { font-family: var(--font); background: var(--bg); color: var(--text1); fon
         <div class="rev-cell">
           <div class="rev-label">Active Programs</div>
           <div class="rev-value" style="color:{% if monetizable_count > 0 %}var(--green){% else %}var(--text2){% endif %}">{{ monetizable_count }}</div>
-          <div class="rev-note">monetizable tools in catalog</div>
+          <div class="rev-note">monetizable tools</div>
         </div>
         <div class="rev-cell" style="grid-column:span 2;">
           <div class="rev-label">Confirmed Revenue</div>
           <div class="rev-value" style="color:var(--text2)">$0.00</div>
-          <div class="rev-note">No affiliate program active yet · all figures above are real DB counts</div>
+          <div class="rev-note">No affiliate program active yet</div>
         </div>
       </div>
     </div>
 
-    <div class="section-header"><span class="section-title" style="font-size:15px;">Affiliate Pipeline — Enrollment Status</span></div>
+    <div class="section-header"><span class="section-title" style="font-size:15px;">Affiliate Pipeline</span></div>
     <div class="card">
       <div class="card-body">
         {% set programs = [
@@ -413,9 +405,9 @@ body { font-family: var(--font); background: var(--bg); color: var(--text1); fon
         <table style="width:100%;border-collapse:collapse;font-size:13px;">
           <thead>
             <tr style="border-bottom:1px solid var(--border);">
-              <th style="text-align:left;padding:6px 0;color:var(--text2);font-weight:600;">Partner</th>
-              <th style="text-align:left;padding:6px 0;color:var(--text2);font-weight:600;">Tool AID</th>
-              <th style="text-align:right;padding:6px 0;color:var(--text2);font-weight:600;">Status</th>
+              <th style="text-align:left;padding:6px 0;color:var(--text2);font-weight:600;font-size:11px;">Partner</th>
+              <th style="text-align:left;padding:6px 0;color:var(--text2);font-weight:600;font-size:11px;">Tool AID</th>
+              <th style="text-align:right;padding:6px 0;color:var(--text2);font-weight:600;font-size:11px;">Status</th>
             </tr>
           </thead>
           <tbody>
@@ -424,13 +416,12 @@ body { font-family: var(--font); background: var(--bg); color: var(--text1); fon
               <td style="padding:8px 0;font-weight:600;">{{ name }}</td>
               <td style="padding:8px 0;color:var(--text2);font-family:monospace;font-size:12px;">{{ aid }}</td>
               <td style="padding:8px 0;text-align:right;">
-                <span style="background:#F5F5F5;color:var(--text2);padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;">{{ note }}</span>
+                <span style="background:var(--bg);color:var(--text2);padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;">{{ note }}</span>
               </td>
             </tr>
             {% endfor %}
           </tbody>
         </table>
-        <p style="margin:12px 0 0;font-size:11px;color:var(--text3);">Revenue cells will populate automatically once <code>Tool.affiliate_tag</code> is set and <code>TaxLog.referral_confirmed = true</code>.</p>
       </div>
     </div>
   </div>
@@ -439,44 +430,26 @@ body { font-family: var(--font); background: var(--bg); color: var(--text1); fon
 </div><!-- /main -->
 
 <script>
-/* ── Data from server ───────────────────────────────────────── */
-const traffic7d   = {{ traffic_7d | safe }};
-const traffic24h  = {{ traffic_24h | safe }};
-const topTools    = {{ top_tools_json | safe }};
-const eliteData   = {{ elite_adoption_json | safe }};
-const llmData     = {{ llm_bg_json | safe }};
-
-/* ── Palette ─────────────────────────────────────────────────── */
-const P = {
-  blue:   'rgba(0,122,255,',
-  green:  'rgba(52,199,89,',
-  red:    'rgba(255,59,48,',
-  orange: 'rgba(255,149,0,',
-  yellow: 'rgba(255,204,0,',
-  purple: 'rgba(175,82,222,',
-  teal:   'rgba(90,200,250,',
-  gray:   'rgba(142,142,147,',
-};
-const solid = c => c+'1)';
-const muted = c => c+'.15)';
-
-const AGENT_COLORS = {
-  Cursor:     P.blue,
-  Claude:     P.orange,
-  Copilot:    P.green,
-  GPT:        P.red,
-  Gemini:     P.purple,
-  Perplexity: P.teal,
-  Human:      P.gray,
-  Other:      P.gray,
-  'Other AI': P.gray,
-};
+const traffic7d  = {{ traffic_7d | safe }};
+const traffic24h = {{ traffic_24h | safe }};
+const topTools   = {{ top_tools_json | safe }};
+const llmData    = {{ llm_bg_json | safe }};
+const aiCrawlerData = {{ ai_crawler_json | safe }};
 
 Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif';
 Chart.defaults.font.size   = 12;
 Chart.defaults.color       = '#6E6E73';
 
-/* ── Traffic Chart ───────────────────────────────────────────── */
+const P = {
+  blue:   'rgba(0,122,255,',   green:  'rgba(52,199,89,',
+  red:    'rgba(255,59,48,',   orange: 'rgba(255,149,0,',
+  purple: 'rgba(175,82,222,',  teal:   'rgba(90,200,250,',
+  indigo: 'rgba(88,86,214,',   gray:   'rgba(142,142,147,',
+};
+const solid = c => c+'1)';
+const muted = c => c+'.15)';
+
+/* Traffic chart */
 let trafficMode = '7d';
 const trafficCtx = document.getElementById('trafficChart').getContext('2d');
 const trafficChart = new Chart(trafficCtx, {
@@ -484,129 +457,92 @@ const trafficChart = new Chart(trafficCtx, {
   data: {
     labels: traffic7d.labels,
     datasets: [
-      {
-        label: 'All requests',
-        data: traffic7d.data,
-        borderColor: 'rgba(142,142,147,0.5)',
-        backgroundColor: 'rgba(142,142,147,0.07)',
-        borderWidth: 1.5,
-        fill: true,
-        tension: 0.4,
-        pointRadius: 2,
-        pointBackgroundColor: 'rgba(142,142,147,0.5)',
-      },
-      {
-        label: 'API endpoint hits',
-        data: traffic7d.real,
-        borderColor: solid(P.blue),
-        backgroundColor: muted(P.blue),
-        borderWidth: 2,
-        fill: true,
-        tension: 0.4,
-        pointRadius: 3,
-        pointBackgroundColor: solid(P.blue),
-      }
+      { label: 'All requests', data: traffic7d.data,
+        borderColor: 'rgba(142,142,147,0.5)', backgroundColor: 'rgba(142,142,147,0.07)',
+        borderWidth: 1.5, fill: true, tension: 0.4, pointRadius: 2 },
+      { label: 'API endpoint hits', data: traffic7d.real,
+        borderColor: solid(P.blue), backgroundColor: muted(P.blue),
+        borderWidth: 2, fill: true, tension: 0.4, pointRadius: 3,
+        pointBackgroundColor: solid(P.blue) }
     ]
   },
   options: {
-    responsive: true,
-    maintainAspectRatio: false,
+    responsive: true, maintainAspectRatio: false,
     plugins: { legend: { display: true, position: 'top', labels: { boxWidth: 12, font: { size: 11 } } } },
     scales: {
       x: { grid: { display: false }, border: { display: false } },
-      y: { grid: { color: 'rgba(0,0,0,.04)' }, border: { display: false }, ticks: { stepSize: 1 }, beginAtZero: true }
+      y: { grid: { color: 'rgba(0,0,0,.04)' }, border: { display: false }, beginAtZero: true }
     }
   }
 });
 
 function switchTraffic(mode, btn) {
-  trafficMode = mode;
   document.querySelectorAll('#traffic-toggle button').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   const d = mode === '7d' ? traffic7d : traffic24h;
-  trafficChart.data.labels              = d.labels;
-  trafficChart.data.datasets[0].data   = d.data;
-  trafficChart.data.datasets[1].data   = d.real;
+  trafficChart.data.labels            = d.labels;
+  trafficChart.data.datasets[0].data  = d.data;
+  trafficChart.data.datasets[1].data  = d.real;
   trafficChart.update();
 }
 
-/* ── Elite Adoption Pie ──────────────────────────────────────── */
+/* AI Crawler breakdown doughnut */
 (function(){
-  const labels = Object.keys(eliteData).filter(k => eliteData[k] > 0);
-  const values = labels.map(k => eliteData[k]);
-  if (labels.length === 0) { labels.push('No data yet'); values.push(1); }
-  const colors = labels.map(l => solid(AGENT_COLORS[l] || P.gray));
-  new Chart(document.getElementById('eliteChart').getContext('2d'), {
+  const labels = Object.keys(aiCrawlerData);
+  const values = labels.map(k => aiCrawlerData[k]);
+  const COLORS_AI = [solid(P.indigo), solid(P.teal), solid(P.purple),
+                     solid(P.blue), solid(P.green), solid(P.orange), solid(P.gray)];
+  new Chart(document.getElementById('aiCrawlerChart').getContext('2d'), {
     type: 'doughnut',
-    data: {
-      labels,
-      datasets: [{ data: values, backgroundColor: colors, borderWidth: 2, borderColor: '#fff', hoverOffset: 6 }]
-    },
+    data: { labels, datasets: [{ data: values, backgroundColor: COLORS_AI, borderWidth: 2, borderColor: '#fff', hoverOffset: 6 }] },
     options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      cutout: '62%',
-      plugins: {
-        legend: { position: 'right', labels: { boxWidth: 10, borderRadius: 3, padding: 14 } }
+      responsive: true, maintainAspectRatio: false, cutout: '58%',
+      plugins: { legend: { position: 'right', labels: { boxWidth: 10, borderRadius: 3, padding: 12, font: { size: 11 } } } }
+    }
+  });
+})();
+
+/* Traffic breakdown bar */
+(function(){
+  const labels = Object.keys(llmData);
+  const values = labels.map(k => llmData[k]);
+  const COLORS = {
+    'Elite AI Agents': solid(P.blue),
+    'AI Crawlers':     solid(P.indigo),
+    'SEO Crawlers':    solid(P.orange),
+    'Humans':          solid(P.green),
+    'Unknown Bots':    solid(P.gray),
+  };
+  new Chart(document.getElementById('llmChart').getContext('2d'), {
+    type: 'bar',
+    data: { labels, datasets: [{ label: 'Requests', data: values,
+      backgroundColor: labels.map(l => COLORS[l] || solid(P.gray)),
+      borderRadius: 7, borderSkipped: false }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { display: false }, border: { display: false } },
+        y: { grid: { color: 'rgba(0,0,0,.04)' }, border: { display: false }, beginAtZero: true }
       }
     }
   });
 })();
 
-/* ── Top Tools Horizontal Bar ────────────────────────────────── */
+/* Top Tools horizontal bar */
 (function(){
   const labels = topTools.length ? topTools.map(t => t.aid) : ['No data yet'];
   const values = topTools.length ? topTools.map(t => t.count) : [0];
   new Chart(document.getElementById('topToolsChart').getContext('2d'), {
     type: 'bar',
-    data: {
-      labels,
-      datasets: [{
-        label: 'Requests',
-        data: values,
-        backgroundColor: solid(P.blue),
-        borderRadius: 6,
-        borderSkipped: false,
-      }]
-    },
+    data: { labels, datasets: [{ label: 'Requests', data: values,
+      backgroundColor: solid(P.blue), borderRadius: 6, borderSkipped: false }] },
     options: {
-      indexAxis: 'y',
-      responsive: true,
-      maintainAspectRatio: false,
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: false } },
       scales: {
         x: { grid: { color: 'rgba(0,0,0,.04)' }, border: { display: false }, beginAtZero: true },
         y: { grid: { display: false }, border: { display: false }, ticks: { font: { size: 11 } } }
-      }
-    }
-  });
-})();
-
-/* ── LLM Battleground ────────────────────────────────────────── */
-(function(){
-  const entries = Object.entries(llmData).filter(([k,v]) => v > 0);
-  const labels  = entries.length ? entries.map(([k]) => k) : ['No data yet'];
-  const values  = entries.length ? entries.map(([,v]) => v) : [0];
-  const colors  = labels.map(l => solid(AGENT_COLORS[l] || P.gray));
-  new Chart(document.getElementById('llmChart').getContext('2d'), {
-    type: 'bar',
-    data: {
-      labels,
-      datasets: [{
-        label: 'Requests',
-        data: values,
-        backgroundColor: colors,
-        borderRadius: 7,
-        borderSkipped: false,
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { grid: { display: false }, border: { display: false } },
-        y: { grid: { color: 'rgba(0,0,0,.04)' }, border: { display: false }, beginAtZero: true }
       }
     }
   });

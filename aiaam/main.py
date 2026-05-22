@@ -43,12 +43,27 @@ ADMIN_SECRET   = os.getenv("ADMIN_SECRET", "change-this")
 ADMIN_INTEL_KEY = os.getenv("ADMIN_INTEL_KEY", ADMIN_SECRET)
 
 # ── Agent classifier ──────────────────────────────────────────────────
+# ── 5-tier UA classifier ─────────────────────────────────────────────────
+# Tier 1: Elite — genuine AI coding agents making programmatic API calls
 _ELITE_UA = re.compile(
-    # Only genuine AI coding agents / LLM-powered clients.
-    # NOT generic crawlers (bingbot, ccbot, fetcher) — those are web scrapers.
-    r"(github-copilot|cursor[\s/]|claudebot|claude-web|anthropic-ai|"
-    r"openai-agent|gpt-4|vscode-agent|gemini-bot|cohere-ai|"
-    r"deepseek-agent|oai-searchbot|claude-code|windsurf|aider)",
+    r"(github-copilot|cursor[\s/]|claude-code|windsurf|aider[\s/]|"
+    r"vscode-agent|openai-agent|deepseek-agent|oai-searchbot)",
+    re.IGNORECASE,
+)
+
+# Tier 2: AI Crawlers — AI companies indexing the web (GOOD: means we get into their indexes)
+_AI_CRAWLER_UA = re.compile(
+    r"(gptbot|chatgpt-user|oai-searchbot|perplexitybot|claudebot|"
+    r"anthropic-ai|claude-web|cohere-ai|gemini-bot|google-extended|"
+    r"ccbot|youbot|metaexternalagent|diffbot|bytespider)",
+    re.IGNORECASE,
+)
+
+# Tier 3: SEO / web crawlers — neutral, just indexing
+_SEO_CRAWLER_UA = re.compile(
+    r"(mj12bot|ahrefsbot|semrushbot|dotbot|yandexbot|bingbot|msnbot|"
+    r"slurp|duckduckbot|baiduspider|rogerbot|exabot|facebot|ia_archiver|"
+    r"scrapy|python-requests|curl/|go-http-client|axios/|java/|dalvik)",
     re.IGNORECASE,
 )
 
@@ -60,24 +75,22 @@ _IOS_VER     = re.compile(r"CPU iPhone OS (\d+)[_ ]", re.IGNORECASE)
 
 def _classify_agent(ua: str) -> str:
     """
-    Three-tier classification: elite → human → unknown.
+    5-tier classification: elite → ai_crawler → seo_crawler → human → unknown.
 
-    "human" requires a plausibly modern browser UA.  UAs that look like
-    browsers but carry telltale bot fingerprints are demoted to "unknown":
-      - Chrome < 100  (released before March 2022 — nobody runs these)
-      - iOS < 15      (iOS 13/14 in 2026 is a fabricated UA)
-      - Bare "Mozilla/5.0" with no further tokens
-      - Dalvik runtime (Android app framework, not a browser)
-      - python-requests, curl, axios, Go-http (programmatic clients)
+    elite       — AI coding agents making programmatic API calls (the holy grail)
+    ai_crawler  — AI companies indexing our content (GPTbot, Perplexitybot = good signal)
+    seo_crawler — SEO/web crawlers, neutral
+    human       — plausible real browser (Chrome/Firefox ≥ 100, modern iOS)
+    unknown     — fake/old UAs, unrecognised bots
     """
     if _ELITE_UA.search(ua):
         return "elite"
+    if _AI_CRAWLER_UA.search(ua):
+        return "ai_crawler"
+    if _SEO_CRAWLER_UA.search(ua):
+        return "seo_crawler"
 
     ua_lower = ua.strip().lower()
-
-    # Programmatic clients — not humans
-    if re.search(r"(python-requests|curl/|go-http-client|axios/|dalvik)", ua_lower):
-        return "unknown"
 
     # Bare Mozilla/5.0 with nothing after it — common generic bot UA
     if ua_lower in ("mozilla/5.0", "mozilla/5.0 "):
@@ -88,7 +101,7 @@ def _classify_agent(ua: str) -> str:
     if ios_m and int(ios_m.group(1)) < 15:
         return "unknown"
 
-    # Old Chrome — Chrome < 100 (pre March 2022) means a spoofed bot UA
+    # Old Chrome — Chrome < 100 (pre March 2022) = spoofed bot UA
     chrome_m = _CHROME_VER.search(ua)
     if chrome_m:
         return "human" if int(chrome_m.group(1)) >= 100 else "unknown"
@@ -1962,52 +1975,85 @@ def _build_dashboard_ctx(session: Session) -> dict:
     human_count   = agent_type_counts.get("human",   0)
     unknown_count = agent_type_counts.get("unknown", 0)
 
-    # All UA strings (7d) for the visitor table + elite pie
+    # All UA strings (7d) — reclassify on the fly (stored agent_type may be stale)
     all_ua_rows = session.exec(
-        select(RequestLog.user_agent, RequestLog.agent_type, func.count(RequestLog.id).label("n"))
+        select(RequestLog.user_agent, func.count(RequestLog.id).label("n"))
         .where(RequestLog.timestamp >= s7d)
-        .group_by(RequestLog.user_agent, RequestLog.agent_type)
+        .group_by(RequestLog.user_agent)
         .order_by(func.count(RequestLog.id).desc())
-        .limit(100)
+        .limit(200)
     ).all()
 
-    # Visitor intelligence table — group by named source
+    # Named source map — ordered by specificity (most specific first)
     _SOURCE_MAP = [
-        ("Cursor",      re.compile(r"cursor",                    re.I)),
-        ("Claude",      re.compile(r"claude|anthropic|claudebot",re.I)),
-        ("Copilot",     re.compile(r"copilot|github-copilot",    re.I)),
-        ("GPT / OpenAI",re.compile(r"gptbot|chatgpt|openai",     re.I)),
-        ("Gemini",      re.compile(r"gemini|google-extended|bard",re.I)),
-        ("Perplexity",  re.compile(r"perplexity",                re.I)),
-        ("CCBot",       re.compile(r"ccbot",                     re.I)),
-        ("Bing",        re.compile(r"bingbot|msnbot",            re.I)),
-        ("Human — Chrome",  re.compile(r"chrome",               re.I)),
-        ("Human — Safari",  re.compile(r"safari",               re.I)),
-        ("Human — Firefox", re.compile(r"firefox",              re.I)),
-        ("curl / script",   re.compile(r"curl",                 re.I)),
+        # Elite AI coding agents
+        ("GitHub Copilot",    re.compile(r"github-copilot|copilot",           re.I), "elite"),
+        ("Cursor",            re.compile(r"cursor[\s/]",                       re.I), "elite"),
+        ("Claude Code",       re.compile(r"claude-code",                       re.I), "elite"),
+        ("Windsurf",          re.compile(r"windsurf",                          re.I), "elite"),
+        ("Aider",             re.compile(r"aider[\s/]",                        re.I), "elite"),
+        # AI company crawlers (indexing = good signal)
+        ("GPTbot (OpenAI)",   re.compile(r"gptbot|chatgpt-user|oai-searchbot", re.I), "ai_crawler"),
+        ("Perplexitybot",     re.compile(r"perplexitybot",                     re.I), "ai_crawler"),
+        ("Claudebot",         re.compile(r"claudebot|anthropic-ai|claude-web", re.I), "ai_crawler"),
+        ("Gemini / Google",   re.compile(r"gemini-bot|google-extended",        re.I), "ai_crawler"),
+        ("CCBot",             re.compile(r"ccbot",                             re.I), "ai_crawler"),
+        ("Cohere",            re.compile(r"cohere-ai",                         re.I), "ai_crawler"),
+        ("ByteSpider",        re.compile(r"bytespider",                        re.I), "ai_crawler"),
+        ("Diffbot",           re.compile(r"diffbot",                           re.I), "ai_crawler"),
+        # SEO / web crawlers
+        ("MJ12bot",           re.compile(r"mj12bot",                           re.I), "seo_crawler"),
+        ("Ahrefsbot",         re.compile(r"ahrefsbot",                         re.I), "seo_crawler"),
+        ("Semrushbot",        re.compile(r"semrushbot",                        re.I), "seo_crawler"),
+        ("Bingbot",           re.compile(r"bingbot|msnbot",                    re.I), "seo_crawler"),
+        ("Yandex",            re.compile(r"yandexbot",                         re.I), "seo_crawler"),
+        ("DuckDuckBot",       re.compile(r"duckduckbot",                       re.I), "seo_crawler"),
+        # Programmatic scripts
+        ("Script / curl",     re.compile(r"curl/|python-requests|go-http-client|axios/|scrapy", re.I), "seo_crawler"),
+        # Humans
+        ("Human — Chrome",    re.compile(r"chrome",                            re.I), "human"),
+        ("Human — Firefox",   re.compile(r"firefox",                           re.I), "human"),
+        ("Human — Safari",    re.compile(r"safari",                            re.I), "human"),
     ]
 
-    source_counts: dict = defaultdict(int)
+    source_counts: dict  = defaultdict(int)
     source_samples: dict = {}
-    source_type: dict   = {}
-    for ua, atype, n in all_ua_rows:
+    source_type: dict    = {}
+    # Live counts per tier (reclassified from raw UA)
+    tier_counts: dict    = defaultdict(int)
+
+    for ua, n in all_ua_rows:
+        tier = _classify_agent(ua)   # fresh classification, ignores stale DB column
+        tier_counts[tier] += n
         label = "Other bot"
-        for name, pat in _SOURCE_MAP:
+        label_tier = tier
+        for name, pat, cat in _SOURCE_MAP:
             if pat.search(ua):
-                label = name
+                # Demote "Human — Chrome/Firefox/Safari" if classifier says unknown/bot
+                if cat == "human" and tier not in ("human",):
+                    continue
+                label      = name
+                label_tier = cat
                 break
-        source_counts[label]  += n
+        source_counts[label] += n
         if label not in source_samples:
-            source_samples[label] = ua[:80]
-            source_type[label]    = atype
+            source_samples[label] = ua[:90]
+            source_type[label]    = label_tier
+
+    # Recompute tier counts from fresh classification
+    elite_count       = tier_counts.get("elite",       0)
+    ai_crawler_count  = tier_counts.get("ai_crawler",  0)
+    seo_crawler_count = tier_counts.get("seo_crawler", 0)
+    human_count       = tier_counts.get("human",       0)
+    unknown_count     = tier_counts.get("unknown",     0)
 
     visitor_table = sorted(
         [
             {
-                "source":    src,
-                "count":     cnt,
+                "source":     src,
+                "count":      cnt,
                 "agent_type": source_type.get(src, "unknown"),
-                "ua_sample": source_samples.get(src, ""),
+                "ua_sample":  source_samples.get(src, ""),
             }
             for src, cnt in source_counts.items()
         ],
@@ -2015,20 +2061,25 @@ def _build_dashboard_ctx(session: Session) -> dict:
         reverse=True,
     )
 
-    # Elite Adoption pie — aggregate by named source for elite agent_type only
-    elite_buckets: dict = defaultdict(int)
+    # AI Crawler breakdown for pie chart
+    ai_crawler_buckets: dict = defaultdict(int)
+    elite_buckets: dict      = defaultdict(int)
     for row in visitor_table:
-        if row["agent_type"] == "elite":
+        if row["agent_type"] == "ai_crawler":
+            ai_crawler_buckets[row["source"]] += row["count"]
+        elif row["agent_type"] == "elite":
             elite_buckets[row["source"]] += row["count"]
-    if not elite_buckets and elite_count > 0:
-        elite_buckets["Elite AI"] = elite_count
-    elite_adoption = dict(elite_buckets) if elite_buckets else {"No elite agents yet": 1}
 
-    # LLM Battleground — all agent types including human (shows full picture)
+    elite_adoption = dict(elite_buckets) if elite_buckets else {"No elite agents yet": 1}
+    ai_crawler_data = dict(ai_crawler_buckets) if ai_crawler_buckets else {"No AI crawlers yet": 1}
+
+    # LLM Battleground — full traffic breakdown
     llm_bg = {
-        "Elite AI":    elite_count,
-        "Human":       human_count,
-        "Unknown/Bot": unknown_count,
+        "Elite AI Agents": elite_count,
+        "AI Crawlers":     ai_crawler_count,
+        "SEO Crawlers":    seo_crawler_count,
+        "Humans":          human_count,
+        "Unknown Bots":    unknown_count,
     }
 
     # Health Grid — verified tools + latest sandbox check
@@ -2114,12 +2165,15 @@ def _build_dashboard_ctx(session: Session) -> dict:
         "tokens_saved_est":     f"~{tokens_saved:,}",
         "tokens_saved_note":    f"4,800 tokens/req × {req_7d} requests (est.)",
         "elite_count":          elite_count,
+        "ai_crawler_count":     ai_crawler_count,
+        "seo_crawler_count":    seo_crawler_count,
         "human_count":          human_count,
         "unknown_count":        unknown_count,
         "traffic_7d":           json.dumps({"labels": list(daily.keys()),  "data": list(daily.values()), "real": list(daily_real.values())}),
         "traffic_24h":          json.dumps({"labels": list(hourly.keys()), "data": list(hourly.values()), "real": list(hourly_real.values())}),
         "top_tools_json":       json.dumps(top_tools),
         "elite_adoption_json":  json.dumps(elite_adoption),
+        "ai_crawler_json":      json.dumps(ai_crawler_data),
         "llm_bg_json":          json.dumps(llm_bg),
         "health_grid":          health_grid,
         "visitor_table":        visitor_table,
