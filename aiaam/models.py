@@ -232,6 +232,7 @@ class CompiledAPI(SQLModel, table=True):
     compiled_at:      datetime           = Field(default_factory=datetime.utcnow, index=True)
     tokens_used:      int                = Field(default=0)
     verified:         bool               = Field(default=False)
+    tags:             Optional[str]      = Field(default=None)  # space-separated capability keywords
 
 
 def tool_to_mai1(tool: Tool, include_action: bool = True) -> dict:

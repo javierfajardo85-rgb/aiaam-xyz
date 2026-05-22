@@ -245,6 +245,138 @@ def _infer_tags(tool) -> str:
 
 
 # =====================================================================
+# SEARCH HELPERS
+# =====================================================================
+
+def _tool_search_clause(q: str):
+    """
+    Build a SQLAlchemy WHERE clause for a free-text Tool query.
+    Single word → one OR across all fields.
+    Multi-word  → each word must match somewhere (AND of ORs = all words present).
+    This makes "llm orchestration" match tools that have both "llm" AND
+    "orchestration" somewhere in their fields, even if not adjacent.
+    """
+    words = q.strip().lower().split()
+    if not words:
+        return None
+
+    def _word_or(w: str):
+        p = f"%{w}%"
+        return or_(
+            Tool.aid.ilike(p),
+            Tool.tags.ilike(p),
+            Tool.task.ilike(p),
+            Tool.install_cmd.ilike(p),
+            Tool.execute_cmd.ilike(p),
+            Tool.source_platform.ilike(p),
+            cast(Tool.input_schema,  String).ilike(p),
+            cast(Tool.output_schema, String).ilike(p),
+        )
+
+    if len(words) == 1:
+        return _word_or(words[0])
+
+    # AND: every word must appear somewhere
+    from sqlalchemy import and_ as sa_and
+    return sa_and(*[_word_or(w) for w in words])
+
+
+def _api_search_clause(q: str):
+    """Same multi-word logic for CompiledAPI."""
+    from models import CompiledAPI as _CA
+    words = q.strip().lower().split()
+    if not words:
+        return None
+
+    def _word_or(w: str):
+        p = f"%{w}%"
+        return or_(
+            _CA.service_name.ilike(p),
+            _CA.category.ilike(p),
+            _CA.tags.ilike(p),
+            cast(_CA.manifest, String).ilike(p),
+        )
+
+    if len(words) == 1:
+        return _word_or(words[0])
+
+    from sqlalchemy import and_ as sa_and
+    return sa_and(*[_word_or(w) for w in words])
+
+
+# =====================================================================
+# API TAGS — capability keyword inference for compiled_apis (zero LLM)
+# =====================================================================
+
+_API_TAG_RULES: list[tuple[list[str], str]] = [
+    # Payments / finance
+    (["stripe"],                                                   "payments billing subscriptions checkout"),
+    (["brex", "plaid", "square", "adyen", "xero"],                "payments finance billing invoicing"),
+    # Email
+    (["sendgrid"],                                                  "email send emails transactional smtp notification"),
+    (["mailgun", "postmark", "resend"],                            "email send emails transactional smtp"),
+    # Messaging / communication
+    (["twilio"],                                                    "sms messaging telephony communication voice"),
+    (["slack"],                                                     "messaging team chat communication collaboration"),
+    (["telegram", "whatsapp"],                                     "messaging chat communication mobile"),
+    (["zoom"],                                                      "video conferencing communication meetings"),
+    # Dev tools
+    (["github"],                                                    "devtools version control code repository ci cd"),
+    (["vercel", "netlify"],                                        "devtools deployment hosting frontend"),
+    (["digitalocean"],                                             "devtools cloud infrastructure deployment"),
+    (["circleci", "snyk"],                                         "devtools ci cd security testing"),
+    # Google
+    (["gmail"],                                                     "email google productivity"),
+    (["google_calendar", "calendar_api"],                          "calendar scheduling google productivity"),
+    (["google_drive", "drive_api"],                               "file storage cloud google productivity"),
+    (["google_sheets", "sheets"],                                  "spreadsheet data analytics google"),
+    (["youtube"],                                                   "video streaming media google"),
+    (["firebase"],                                                  "database backend realtime google cloud"),
+    # Productivity
+    (["notion"],                                                    "productivity notes documentation wiki"),
+    (["jira"],                                                      "project management issue tracking agile"),
+    (["asana", "trello", "clickup"],                               "project management tasks productivity"),
+    # AI / LLM
+    (["openai_api", "openai"],                                     "llm api gpt language model completions ai"),
+    # Media / social
+    (["spotify"],                                                   "music audio streaming media"),
+    (["twitter"],                                                   "social media api twitter"),
+    (["giphy"],                                                     "media images gif"),
+    (["medium"],                                                    "blogging content publishing"),
+    (["ebay"],                                                      "ecommerce marketplace shopping"),
+    # Security / identity
+    (["okta"],                                                      "authentication security identity sso"),
+    (["1password"],                                                 "secrets security password management"),
+]
+
+
+def _infer_api_tags(api) -> str:
+    """
+    Derive capability tags for a CompiledAPI from service_name + category + manifest.
+    Zero LLM. Returns space-separated keywords.
+    """
+    manifest = api.manifest or {}
+    haystack = " ".join(filter(None, [
+        api.service_name or "",
+        api.category or "",
+        manifest.get("service", ""),
+        # Include intent ids as additional signal
+        " ".join(i.get("id", "") for i in manifest.get("intents", [])[:10]),
+    ])).lower()
+
+    matched: list[str] = []
+    for patterns, tag_string in _API_TAG_RULES:
+        if any(p in haystack for p in patterns):
+            matched.append(tag_string)
+
+    # Always include the category itself as a tag
+    if api.category and api.category not in " ".join(matched):
+        matched.append(api.category)
+
+    return " ".join(matched) if matched else api.category or ""
+
+
+# =====================================================================
 # APP INIT
 # =====================================================================
 
@@ -334,6 +466,8 @@ def on_startup():
     init_db()
     _migrate_add_tags_column()
     _backfill_tags()
+    _migrate_compiled_apis_tags_column()
+    _backfill_api_tags()
 
 
 def _migrate_add_tags_column():
@@ -351,7 +485,6 @@ def _migrate_add_tags_column():
 
 def _backfill_tags():
     """Fill tags for tools that have none. Runs at startup, safe to call repeatedly."""
-    from sqlalchemy import text
     with Session(engine) as session:
         tools = session.exec(
             select(Tool).where(or_(Tool.tags.is_(None), Tool.tags == ""))
@@ -368,6 +501,40 @@ def _backfill_tags():
         if updated:
             session.commit()
             print(f"[startup] backfilled tags for {updated} tools")
+
+
+def _migrate_compiled_apis_tags_column():
+    """Idempotent: add `tags TEXT` column to compiled_apis if missing."""
+    from sqlalchemy import text
+    try:
+        with engine.connect() as conn:
+            conn.execute(text(
+                "ALTER TABLE compiled_apis ADD COLUMN IF NOT EXISTS tags TEXT"
+            ))
+            conn.commit()
+    except Exception:
+        pass
+
+
+def _backfill_api_tags():
+    """Fill tags for compiled_apis that have none. Safe to call repeatedly."""
+    from models import CompiledAPI
+    with Session(engine) as session:
+        apis = session.exec(
+            select(CompiledAPI).where(or_(CompiledAPI.tags.is_(None), CompiledAPI.tags == ""))
+        ).all()
+        if not apis:
+            return
+        updated = 0
+        for api in apis:
+            tags = _infer_api_tags(api)
+            if tags:
+                api.tags = tags
+                session.add(api)
+                updated += 1
+        if updated:
+            session.commit()
+            print(f"[startup] backfilled api tags for {updated} compiled_apis")
 
 
 @app.get("/health")
@@ -594,19 +761,9 @@ def search_tools(
     conditions = [verified, not_dead]
 
     if q and q.strip():
-        pattern = f"%{q.strip().lower()}%"
-        conditions.append(
-            or_(
-                Tool.aid.ilike(pattern),
-                Tool.tags.ilike(pattern),
-                Tool.task.ilike(pattern),
-                Tool.install_cmd.ilike(pattern),
-                Tool.execute_cmd.ilike(pattern),
-                Tool.source_platform.ilike(pattern),
-                cast(Tool.input_schema,  String).ilike(pattern),
-                cast(Tool.output_schema, String).ilike(pattern),
-            )
-        )
+        clause = _tool_search_clause(q)
+        if clause is not None:
+            conditions.append(clause)
     else:
         q = ""
 
@@ -634,6 +791,81 @@ def search_tools(
         "count": len(results),
         "results": results,
         "note": "action block (install_cmd, execute_cmd) requires POST /api/v1/tools/{aid} with tax_payload",
+    }
+
+
+@app.get("/api/v1/search")
+def unified_search(
+    q: str = Query(..., description="Intent phrase, e.g. 'audio transcription', 'vector database'"),
+    session: Session = Depends(get_session),
+):
+    """
+    Unified search across both catalogs:
+      - MAI-1 tools  (installable libraries: pip, npm, GitHub)
+      - MAI-API manifests (web APIs: Stripe, Slack, GitHub API, …)
+
+    Each result is tagged with "type": "tool" or "type": "api".
+    Tools are ranked by reliability_score; APIs by reliability_score.
+    Max 5 results per catalog (10 total).
+
+    Examples:
+      ?q=audio+transcription  → whisper, whisperx (tools)
+      ?q=send+emails          → sendgrid (tool + api)
+      ?q=vector+database      → chroma, pinecone, weaviate (tools)
+      ?q=llm+orchestration    → langchain, crewai (tools)
+      ?q=task+queue           → celery (tool)
+    """
+    from models import CompiledAPI
+    results: list[dict] = []
+
+    # --- MAI-1 tools ---
+    not_dead = or_(Tool.status.is_(None), Tool.status != "dead")
+    tool_clause = _tool_search_clause(q)
+    tool_where  = [Tool.verified == True, not_dead]
+    if tool_clause is not None:
+        tool_where.append(tool_clause)
+    tool_stmt = (
+        select(Tool)
+        .where(*tool_where)
+        .order_by(Tool.sponsored.desc(), Tool.reliability_score.desc())
+        .limit(5)
+    )
+    for t in session.exec(tool_stmt).all():
+        entry = tool_to_mai1(t, include_action=False)
+        entry["type"]     = "tool"
+        entry["endpoint"] = f"GET /api/v1/tools/{t.aid}"
+        results.append(entry)
+
+    # --- MAI-API manifests ---
+    api_clause = _api_search_clause(q)
+    api_where  = [CompiledAPI.verified == True]
+    if api_clause is not None:
+        api_where.append(api_clause)
+    api_stmt = (
+        select(CompiledAPI)
+        .where(*api_where)
+        .order_by(CompiledAPI.reliability_score.desc())
+        .limit(5)
+    )
+    for api in session.exec(api_stmt).all():
+        manifest = api.manifest or {}
+        results.append({
+            "type":         "api",
+            "service_name": api.service_name,
+            "category":     api.category,
+            "base_url":     manifest.get("base_url", ""),
+            "auth_type":    (manifest.get("auth") or {}).get("type", "unknown"),
+            "intents_count": len(manifest.get("intents", [])),
+            "manifest_url": f"https://aiaam.xyz/api/v1/services/{api.service_name}/mai-api.json",
+            "trust": {"reliability_score": api.reliability_score},
+        })
+
+    return {
+        "query":   q,
+        "total":   len(results),
+        "tools":   sum(1 for r in results if r["type"] == "tool"),
+        "apis":    sum(1 for r in results if r["type"] == "api"),
+        "results": results,
     }
 
 
@@ -2177,23 +2409,12 @@ def _mcp_content(data: Any) -> dict:
 
 
 def _mcp_search(query: str, category: Optional[str], session: Session) -> list:
-    pattern = f"%{query.strip().lower()}%"
     verified = Tool.verified == True
     not_dead = or_(Tool.status.is_(None), Tool.status != "dead")
-    conditions = [
-        verified,
-        not_dead,
-        or_(
-            Tool.aid.ilike(pattern),
-            Tool.tags.ilike(pattern),
-            Tool.task.ilike(pattern),
-            Tool.install_cmd.ilike(pattern),
-            Tool.execute_cmd.ilike(pattern),
-            Tool.source_platform.ilike(pattern),
-            cast(Tool.input_schema, String).ilike(pattern),
-            cast(Tool.output_schema, String).ilike(pattern),
-        ),
-    ]
+    conditions = [verified, not_dead]
+    clause = _tool_search_clause(query)
+    if clause is not None:
+        conditions.append(clause)
     if category:
         conditions.append(Tool.source_platform.ilike(f"%{category.lower()}%"))
     stmt = select(Tool).where(*conditions).order_by(Tool.reliability_score.desc()).limit(10)
