@@ -130,6 +130,121 @@ def _write_request_log(
         pass  # never break the response
 
 # =====================================================================
+# TAGS — static capability keyword inference (zero LLM)
+# =====================================================================
+
+# Each entry: (list_of_substrings_to_match_in_aid_or_install_cmd, tags_string)
+# Match is case-insensitive substring; first match wins per group (multiple can match).
+_TAG_RULES: list[tuple[list[str], str]] = [
+    # Web scraping / crawling
+    (["scrapy", "beautifulsoup", "bs4", "mechanize", "crawl4ai"], "web scraping crawler html parsing data extraction"),
+    (["playwright", "selenium", "pyppeteer", "splash"],           "web scraping browser automation testing headless"),
+    # Audio / speech
+    (["whisper", "speechbrain", "deepspeech", "nemo"],            "audio transcription speech to text stt voice recognition"),
+    # Email
+    (["sendgrid", "mailgun", "postmark", "resend", "mailchimp"],  "email send emails transactional smtp notification"),
+    (["smtplib", "yagmail", "emails"],                             "email send emails smtp"),
+    # SMS / communication
+    (["twilio", "vonage", "nexmo", "messagebird"],                "sms messaging communication telephony"),
+    # Vector databases / embeddings
+    (["chromadb", "chroma"],                                       "vector database embeddings semantic search similarity"),
+    (["pinecone"],                                                  "vector database embeddings semantic search similarity"),
+    (["weaviate"],                                                  "vector database embeddings semantic search similarity"),
+    (["qdrant"],                                                    "vector database embeddings semantic search similarity"),
+    (["pymilvus", "milvus"],                                       "vector database embeddings similarity search"),
+    (["faiss", "annoy", "hnswlib", "usearch"],                    "vector database embeddings similarity search"),
+    # LLM frameworks / agents
+    (["langchain"],                                                 "llm framework language model agents orchestration rag"),
+    (["crewai"],                                                    "llm framework agents multi-agent orchestration"),
+    (["llama-index", "llama_index", "llamaindex"],                 "llm framework rag retrieval augmented generation"),
+    (["haystack"],                                                  "llm framework rag question answering nlp pipeline"),
+    (["autogen", "auto-gen"],                                      "llm framework agents multi-agent"),
+    (["smolagents"],                                               "llm framework agents tools huggingface"),
+    (["langgraph"],                                                 "llm framework agents graph state machine"),
+    (["letta"],                                                     "llm framework agents memory stateful"),
+    (["swarm"],                                                     "llm framework agents multi-agent openai"),
+    (["pydantic-ai"],                                               "llm framework agents type-safe"),
+    # LLM observability
+    (["langfuse", "langsmith", "phoenix", "arize", "braintrust"], "llm observability tracing monitoring evaluation"),
+    (["logfire", "opentelemetry"],                                 "observability tracing logging monitoring"),
+    # LLM APIs
+    (["openai"],                                                    "llm api gpt language model completions chatgpt"),
+    (["anthropic"],                                                 "llm api claude language model completions"),
+    (["lmstudio"],                                                  "llm local inference server"),
+    # ML / deep learning
+    (["transformers", "huggingface_hub", "huggingface-hub"],      "machine learning models transformers nlp huggingface"),
+    (["torch", "pytorch"],                                         "deep learning neural network training gpu"),
+    (["tensorflow", "keras"],                                      "deep learning neural network training"),
+    (["diffusers", "stable-audio", "stable-diffusion"],           "image generation ai art diffusion generative"),
+    # Data
+    (["pandas"],                                                    "data analysis dataframe tabular csv"),
+    (["polars"],                                                    "data analysis dataframe fast tabular"),
+    (["numpy", "scipy"],                                           "numerical computation array math scientific"),
+    (["arrow", "pyarrow"],                                         "data format columnar analytics parquet"),
+    (["dbt"],                                                       "data transformation sql analytics warehouse"),
+    # Web frameworks / servers
+    (["fastapi"],                                                   "web api rest server async python"),
+    (["flask"],                                                     "web api rest server python"),
+    (["django"],                                                    "web framework rest api python"),
+    (["uvicorn", "gunicorn", "hypercorn"],                        "web server asgi wsgi deployment"),
+    # Databases
+    (["redis", "redis-py"],                                        "cache database key-value store pub-sub messaging"),
+    (["mongodb", "pymongo", "motor"],                              "database nosql document store"),
+    (["sqlalchemy", "alembic"],                                    "database sql orm relational migration"),
+    (["supabase"],                                                  "database sql postgres backend realtime"),
+    # Task queues / scheduling
+    (["celery"],                                                    "task queue background jobs async distributed"),
+    (["apscheduler"],                                               "task scheduling cron jobs background"),
+    (["airflow"],                                                   "workflow orchestration dag pipeline scheduling"),
+    (["prefect", "dagster"],                                       "workflow orchestration pipeline data"),
+    # Payments
+    (["stripe"],                                                    "payments billing subscriptions checkout"),
+    # DevTools
+    (["scrapy", "pytest"],                                         "testing unit test framework"),
+    (["black", "ruff", "flake8", "mypy"],                         "code formatting linting static analysis"),
+    (["docker", "docker-py"],                                      "containerization deployment devops"),
+    (["github", "pygithub", "gitpython"],                         "version control code repository devtools"),
+    # Communication / productivity
+    (["slack", "slack-sdk"],                                       "communication messaging team chat"),
+    (["notion"],                                                    "productivity notes documentation database"),
+    (["jira", "atlassian"],                                        "project management issue tracking agile"),
+    # Media / social
+    (["yt-dlp", "pytube", "youtube"],                             "video download streaming media youtube"),
+    (["spotify"],                                                   "music audio streaming media"),
+    (["tweepy", "twython"],                                        "social media api twitter"),
+    # Memory / agent infra
+    (["mem0"],                                                      "agent memory storage retrieval"),
+    # HTTP / networking
+    (["httpx", "aiohttp"],                                         "http client api requests async networking"),
+    (["requests"],                                                  "http client api requests networking"),
+    # Config / env
+    (["python-dotenv", "dotenv"],                                  "configuration environment variables secrets"),
+    # Data validation
+    (["pydantic"],                                                  "data validation schema parsing models"),
+]
+
+
+def _infer_tags(tool) -> str:
+    """
+    Derive capability tags from aid + install_cmd + source_url.
+    Returns a space-separated string of keywords. Zero LLM.
+    """
+    haystack = " ".join(filter(None, [
+        tool.aid or "",
+        tool.install_cmd or "",
+        tool.source_url or "",
+        tool.task or "",
+    ])).lower()
+
+    matched: list[str] = []
+    for patterns, tag_string in _TAG_RULES:
+        if any(p in haystack for p in patterns):
+            matched.append(tag_string)
+
+    return " ".join(matched) if matched else ""
+
+
+# =====================================================================
 # APP INIT
 # =====================================================================
 
@@ -217,6 +332,42 @@ async def audit_log_middleware(request: Request, call_next):
 @app.on_event("startup")
 def on_startup():
     init_db()
+    _migrate_add_tags_column()
+    _backfill_tags()
+
+
+def _migrate_add_tags_column():
+    """Idempotent: add `tags` TEXT column to tools if it doesn't exist."""
+    from sqlalchemy import text
+    try:
+        with engine.connect() as conn:
+            conn.execute(text(
+                "ALTER TABLE tools ADD COLUMN IF NOT EXISTS tags TEXT"
+            ))
+            conn.commit()
+    except Exception:
+        pass  # SQLite <3.37 fallback — column may already exist, ignore
+
+
+def _backfill_tags():
+    """Fill tags for tools that have none. Runs at startup, safe to call repeatedly."""
+    from sqlalchemy import text
+    with Session(engine) as session:
+        tools = session.exec(
+            select(Tool).where(or_(Tool.tags.is_(None), Tool.tags == ""))
+        ).all()
+        if not tools:
+            return
+        updated = 0
+        for tool in tools:
+            tags = _infer_tags(tool)
+            if tags:
+                tool.tags = tags
+                session.add(tool)
+                updated += 1
+        if updated:
+            session.commit()
+            print(f"[startup] backfilled tags for {updated} tools")
 
 
 @app.get("/health")
@@ -427,13 +578,13 @@ def search_tools(
     session: Session = Depends(get_session),
 ):
     """
-    Search the MAI-1 catalog by keyword and optional category.
+    Search the MAI-1 catalog by keyword or intent phrase and optional category.
 
-    Searches across: aid, source_platform, install_cmd, execute_cmd,
-    input_schema (JSON), output_schema (JSON).
+    Searches across: aid, task, tags (capability keywords), install_cmd,
+    execute_cmd, source_platform, input_schema, output_schema.
 
-    Returns partial MAI-1 (identity + logic + trust). Action block
-    requires a POST with tax_payload on the individual tool endpoint.
+    Intent examples: "web scraping", "send emails", "vector database",
+    "audio transcription", "llm framework".
 
     If q is empty or absent → returns top 10 by reliability_score.
     Max 10 results per query.
@@ -447,9 +598,11 @@ def search_tools(
         conditions.append(
             or_(
                 Tool.aid.ilike(pattern),
-                Tool.source_platform.ilike(pattern),
+                Tool.tags.ilike(pattern),
+                Tool.task.ilike(pattern),
                 Tool.install_cmd.ilike(pattern),
                 Tool.execute_cmd.ilike(pattern),
+                Tool.source_platform.ilike(pattern),
                 cast(Tool.input_schema,  String).ilike(pattern),
                 cast(Tool.output_schema, String).ilike(pattern),
             )
@@ -791,6 +944,7 @@ def ingest_tool(
         monetizable=body.monetizable,
         task=body.task,
     )
+    tool.tags = _infer_tags(tool)
     session.merge(tool)
     session.commit()
     return {"status": "ok", "aid": tool.aid}
@@ -2031,9 +2185,11 @@ def _mcp_search(query: str, category: Optional[str], session: Session) -> list:
         not_dead,
         or_(
             Tool.aid.ilike(pattern),
-            Tool.source_platform.ilike(pattern),
+            Tool.tags.ilike(pattern),
+            Tool.task.ilike(pattern),
             Tool.install_cmd.ilike(pattern),
             Tool.execute_cmd.ilike(pattern),
+            Tool.source_platform.ilike(pattern),
             cast(Tool.input_schema, String).ilike(pattern),
             cast(Tool.output_schema, String).ilike(pattern),
         ),
