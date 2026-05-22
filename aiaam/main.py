@@ -2129,7 +2129,25 @@ def _build_dashboard_ctx(session: Session) -> dict:
 
 
 @app.get("/admin/dashboard", response_class=HTMLResponse, include_in_schema=False)
-def admin_dashboard():
+def admin_dashboard(
+    request: Request,
+    token: Optional[str] = Query(default=None),
+    session: Session = Depends(get_session),
+):
+    """Original operational dashboard — traffic, tools, revenue, tax logs."""
+    if token != ADMIN_SECRET:
+        raise HTTPException(status_code=404, detail="Not Found")
+    ctx = _build_dashboard_ctx(session)
+    ctx["request"] = request
+    response = templates.TemplateResponse("dashboard.html", ctx)
+    response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive"
+    if "server" in response.headers:
+        del response.headers["server"]
+    return response
+
+
+@app.get("/admin/search-dashboard", response_class=HTMLResponse, include_in_schema=False)
+def admin_search_dashboard():
     """
     Admin dashboard — auth handled entirely in browser via sessionStorage.
     No secret ever appears in the URL (contains URL-unsafe chars like +, &, }).
@@ -2149,49 +2167,49 @@ def admin_dashboard():
         '<style>'
         '* { box-sizing: border-box; margin: 0; padding: 0; }'
         'body { font-family: "SF Mono","Fira Code","Consolas",monospace;'
-        '       background: #0d0d0d; color: #d0d0d0; font-size: 13px; line-height: 1.5; }'
-        '#auth-overlay { position: fixed; inset: 0; background: #0d0d0d;'
+        '       background: #f5f6f8; color: #1f2937; font-size: 13px; line-height: 1.5; }'
+        '#auth-overlay { position: fixed; inset: 0; background: #f5f6f8;'
         '  display: flex; align-items: center; justify-content: center; z-index: 999; }'
-        '#auth-box { background: #111; border: 1px solid #1e1e1e; border-radius: 6px;'
+        '#auth-box { background: #ffffff; border: 1px solid #d1d5db; border-radius: 6px;'
         '  padding: 32px 40px; min-width: 340px; }'
-        '#auth-box h2 { color: #fff; font-size: 0.9rem; margin-bottom: 16px; }'
-        '#auth-box input { width: 100%; background: #0d0d0d; border: 1px solid #1e1e1e;'
-        '  color: #d0d0d0; font-family: inherit; font-size: 13px; padding: 8px 10px;'
+        '#auth-box h2 { color: #111827; font-size: 0.9rem; margin-bottom: 16px; }'
+        '#auth-box input { width: 100%; background: #f5f6f8; border: 1px solid #e5e7eb;'
+        '  color: #1f2937; font-family: inherit; font-size: 13px; padding: 8px 10px;'
         '  border-radius: 4px; margin-bottom: 10px; }'
-        '#auth-box button { background: #1a3a5c; color: #7eb8f7; border: 1px solid #2a5a8c;'
+        '#auth-box button { background: #bfdbfe; color: #2563eb; border: 1px solid #2a5a8c;'
         '  padding: 8px 20px; border-radius: 4px; cursor: pointer; font-family: inherit; }'
-        '#auth-err { color: #e07a5f; font-size: 0.8rem; margin-top: 8px; min-height: 18px; }'
+        '#auth-err { color: #dc2626; font-size: 0.8rem; margin-top: 8px; min-height: 18px; }'
         'header { padding: 16px 24px; border-bottom: 1px solid #1e1e1e;'
         '         display: flex; justify-content: space-between; align-items: baseline; }'
-        'header h1 { color: #fff; font-size: 1rem; font-weight: 600; }'
-        'header .meta { color: #444; font-size: 0.78rem; }'
-        'header .signout { color: #444; font-size: 0.75rem; cursor: pointer;'
+        'header h1 { color: #111827; font-size: 1rem; font-weight: 600; }'
+        'header .meta { color: #6b7280; font-size: 0.78rem; }'
+        'header .signout { color: #6b7280; font-size: 0.75rem; cursor: pointer;'
         '  text-decoration: underline; margin-left: 16px; }'
         '.page { max-width: 1100px; margin: 0 auto; padding: 24px; }'
         '.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 28px; }'
-        '.card { background: #111; border: 1px solid #1e1e1e; border-radius: 5px; padding: 16px 20px; }'
-        '.card .n { font-size: 2rem; font-weight: 700; color: #fff; }'
-        '.card .l { color: #555; font-size: 0.75rem; margin-top: 2px; }'
+        '.card { background: #ffffff; border: 1px solid #e5e7eb; border-radius: 5px; padding: 16px 20px; }'
+        '.card .n { font-size: 2rem; font-weight: 700; color: #111827; }'
+        '.card .l { color: #9ca3af; font-size: 0.75rem; margin-top: 2px; }'
         'section { margin-bottom: 32px; }'
         'section h2 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em;'
-        '  color: #555; margin-bottom: 10px; border-bottom: 1px solid #1a1a1a; padding-bottom: 6px; }'
+        '  color: #9ca3af; margin-bottom: 10px; border-bottom: 1px solid #e5e7eb; padding-bottom: 6px; }'
         'section h2 .badge { font-size: 0.7rem; background: #1a3a1a; color: #5a9a5a;'
         '  border: 1px solid #2a5a2a; border-radius: 3px; padding: 1px 6px; margin-left: 8px;'
         '  text-transform: none; letter-spacing: 0; vertical-align: middle; }'
         'table { width: 100%; border-collapse: collapse; }'
-        'th { text-align: left; color: #444; font-weight: 400; padding: 4px 12px 8px 0;'
+        'th { text-align: left; color: #6b7280; font-weight: 400; padding: 4px 12px 8px 0;'
         '     font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; }'
-        'td { padding: 5px 12px 5px 0; border-top: 1px solid #151515; vertical-align: top; }'
-        'tr:hover td { background: #111; }'
-        '.query-text { color: #aaa; } .zero-text { color: #e07a5f; }'
-        '.num { color: #7eb8f7; text-align: right; padding-right: 24px; } .dim { color: #444; }'
+        'td { padding: 5px 12px 5px 0; border-top: 1px solid #f3f4f6; vertical-align: top; }'
+        'tr:hover td { background: #ffffff; }'
+        '.query-text { color: #374151; } .zero-text { color: #dc2626; }'
+        '.num { color: #2563eb; text-align: right; padding-right: 24px; } .dim { color: #6b7280; }'
         '.agents-list { display: flex; flex-direction: column; gap: 4px; }'
         '.agent-row { display: flex; gap: 12px; }'
-        '.agent-ua { color: #777; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;'
+        '.agent-ua { color: #6b7280; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;'
         '            max-width: 700px; flex: 1; }'
-        '.agent-n { color: #7eb8f7; flex-shrink: 0; width: 40px; text-align: right; }'
-        '#refresh-bar { height: 2px; background: #1a3a5c; transition: width linear; }'
-        '.empty { color: #333; padding: 12px 0; font-style: italic; }'
+        '.agent-n { color: #2563eb; flex-shrink: 0; width: 40px; text-align: right; }'
+        '#refresh-bar { height: 2px; background: #bfdbfe; transition: width linear; }'
+        '.empty { color: #d1d5db; padding: 12px 0; font-style: italic; }'
         '.bar-wrap { overflow-x: auto; }'
         '</style>'
         '</head>'
@@ -2221,7 +2239,7 @@ def admin_dashboard():
         '  <div class="cards">'
         '    <div class="card"><div class="n" id="c-total">—</div><div class="l">searches \xb7 last 7 days</div></div>'
         '    <div class="card"><div class="n" id="c-top">—</div><div class="l">unique queries</div></div>'
-        '    <div class="card"><div class="n" id="c-zero" style="color:#e07a5f">—</div><div class="l">zero-result queries</div></div>'
+        '    <div class="card"><div class="n" id="c-zero" style="color:#dc2626">—</div><div class="l">zero-result queries</div></div>'
         '  </div>'
         '  <section>'
         '    <h2>Zero-result queries <span class="badge">catalog expansion signal</span></h2>'
@@ -2348,7 +2366,7 @@ def admin_dashboard():
         'function drawChart(hourly) {'
         '  var svg = document.getElementById("chart");'
         '  if (!hourly.length) {'
-        '    svg.innerHTML = "<text x=\'12\' y=\'70\' fill=\'#333\' font-size=\'12\'>No data yet.</text>";'
+        '    svg.innerHTML = "<text x=\'12\' y=\'70\' fill=\'#9ca3af\' font-size=\'12\'>No data yet.</text>";'
         '    return;'
         '  }'
         '  var W = 900, H = 120, padL = 40, padR = 12, padT = 10, padB = 28;'
@@ -2361,16 +2379,16 @@ def admin_dashboard():
         '    var x  = padL + i * slot;'
         '    var bh = Math.max(2, Math.round((h.queries / maxQ) * chartH));'
         '    var y  = padT + chartH - bh;'
-        '    bars += "<rect x=\'" + x + "\' y=\'" + y + "\' width=\'" + bw + "\' height=\'" + bh + "\' fill=\'#1a3a5c\' rx=\'1\'>"'
+        '    bars += "<rect x=\'" + x + "\' y=\'" + y + "\' width=\'" + bw + "\' height=\'" + bh + "\' fill=\'#bfdbfe\' rx=\'1\'>"'
         '         +  "<title>" + (h.hour ? h.hour.slice(11,16) : "") + " — " + h.queries + " queries</title></rect>";'
         '    if (i % 4 === 0 && h.hour) {'
         '      var lbl = h.hour.slice(11, 16);'
-        '      labels += "<text x=\'" + (x + bw/2) + "\' y=\'" + (H-4) + "\' fill=\'#333\' font-size=\'9\' text-anchor=\'middle\'>" + lbl + "</text>";'
+        '      labels += "<text x=\'" + (x + bw/2) + "\' y=\'" + (H-4) + "\' fill=\'#9ca3af\' font-size=\'9\' text-anchor=\'middle\'>" + lbl + "</text>";'
         '    }'
         '  });'
-        '  var axis = "<line x1=\'" + (padL-4) + "\' y1=\'" + padT + "\' x2=\'" + (padL-4) + "\' y2=\'" + (padT+chartH) + "\' stroke=\'#222\'/>"'
-        '           + "<text x=\'" + (padL-6) + "\' y=\'" + (padT+6) + "\' fill=\'#333\' font-size=\'9\' text-anchor=\'end\'>" + maxQ + "</text>"'
-        '           + "<text x=\'" + (padL-6) + "\' y=\'" + (padT+chartH) + "\' fill=\'#333\' font-size=\'9\' text-anchor=\'end\'>0</text>";'
+        '  var axis = "<line x1=\'" + (padL-4) + "\' y1=\'" + padT + "\' x2=\'" + (padL-4) + "\' y2=\'" + (padT+chartH) + "\' stroke=\'#e5e7eb\'/>"'
+        '           + "<text x=\'" + (padL-6) + "\' y=\'" + (padT+6) + "\' fill=\'#9ca3af\' font-size=\'9\' text-anchor=\'end\'>" + maxQ + "</text>"'
+        '           + "<text x=\'" + (padL-6) + "\' y=\'" + (padT+chartH) + "\' fill=\'#9ca3af\' font-size=\'9\' text-anchor=\'end\'>0</text>";'
         '  svg.innerHTML = axis + bars + labels;'
         '}'
         ''
