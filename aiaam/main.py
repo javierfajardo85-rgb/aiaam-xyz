@@ -1946,7 +1946,7 @@ _MCP_TOOLS_LIST = [
         "name": "get_api_manifest",
         "description": (
             "Returns a compact MAI-API manifest for a web API service (Stripe, Slack, GitHub, etc.). "
-            "Each manifest is ~300 tokens and contains the base URL, auth method, and up to 20 key "
+            "Each manifest is ~850 tokens and contains the base URL, auth method, and up to 20 key "
             "endpoints. Use this instead of fetching and parsing a full OpenAPI spec. "
             "Available services include: stripe_api, slack_web_api, github, openai_api, notion_api, "
             "jira_cloud_rest_api, gmail_api, google_calendar_api, twilio_api, sendgrid_email_activity_api, "
