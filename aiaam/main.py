@@ -26,12 +26,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field, HttpUrl, field_validator
-from sqlalchemy import cast, String, or_
+from sqlalchemy import cast, String, or_, text as sa_text
 from sqlmodel import Session, select, func
 from dotenv import load_dotenv
 
 import secrets as _secrets
-from models import Tool, TaxPayload, tool_to_mai1, InjectedRepo, RequestLog, TaxLog, HealthCheck, AgentLog, ApiKey, CompiledAPI
+from models import Tool, TaxPayload, tool_to_mai1, InjectedRepo, RequestLog, TaxLog, HealthCheck, AgentLog, ApiKey, CompiledAPI, SearchLog
 from database import init_db, get_session, engine
 from analytics import log_transaction, get_stats, DEFAULT_TOKENS_SAVED, check_monetization_ratio
 from translator import translate_and_save, fetch_github_readme, translate
@@ -302,6 +302,35 @@ def _api_search_clause(q: str):
 
     from sqlalchemy import and_ as sa_and
     return sa_and(*[_word_or(w) for w in words])
+
+
+def _log_search_bg(
+    query: str,
+    catalog: str,
+    results_count: int,
+    result_aids: list,
+    user_agent: str,
+    raw_ip: str,
+) -> None:
+    """
+    Persist one SearchLog row. Called via BackgroundTasks — never blocks response.
+    Stores SHA-256 prefix of IP, never the raw address.
+    """
+    import hashlib
+    ip_hash = hashlib.sha256((raw_ip or "").encode()).hexdigest()[:16]
+    try:
+        with Session(engine) as session:
+            session.add(SearchLog(
+                query=query.strip()[:500],
+                catalog=catalog,
+                results_count=results_count,
+                result_aids=result_aids[:20],          # cap at 20 aids
+                user_agent=(user_agent or "")[:512],
+                ip_hash=ip_hash,
+            ))
+            session.commit()
+    except Exception:
+        pass  # logging must never break the response
 
 
 # =====================================================================
@@ -742,6 +771,8 @@ def robots():
 def search_tools(
     q: Optional[str] = Query(default=None, description="Keyword to search across MAI-1 catalog"),
     category: Optional[str] = Query(default=None, description="Filter by source platform: github | pypi | huggingface | npm"),
+    request: Request = None,
+    background_tasks: BackgroundTasks = None,
     session: Session = Depends(get_session),
 ):
     """
@@ -785,6 +816,17 @@ def search_tools(
             entry["sponsored"] = True
         results.append(entry)
 
+    if q and background_tasks and request:
+        background_tasks.add_task(
+            _log_search_bg,
+            query=q,
+            catalog="mai1",
+            results_count=len(results),
+            result_aids=[r["identity"]["aid"] for r in results],
+            user_agent=request.headers.get("user-agent", ""),
+            raw_ip=request.client.host if request.client else "",
+        )
+
     return {
         "query": q,
         "category": category or "",
@@ -794,9 +836,61 @@ def search_tools(
     }
 
 
+@app.get("/api/v1/services/search")
+def search_apis(
+    q: str = Query(..., description="Intent phrase, e.g. 'send emails', 'payments'"),
+    request: Request = None,
+    background_tasks: BackgroundTasks = None,
+    session: Session = Depends(get_session),
+):
+    """
+    Search MAI-API manifests only. Returns compiled API manifests matching the intent.
+    For a unified search across both catalogs use GET /api/v1/search.
+    """
+    from models import CompiledAPI
+    api_clause = _api_search_clause(q)
+    api_where = [CompiledAPI.verified == True]
+    if api_clause is not None:
+        api_where.append(api_clause)
+    api_stmt = (
+        select(CompiledAPI)
+        .where(*api_where)
+        .order_by(CompiledAPI.reliability_score.desc())
+        .limit(10)
+    )
+    results = []
+    for api in session.exec(api_stmt).all():
+        manifest = api.manifest or {}
+        results.append({
+            "type":         "api",
+            "service_name": api.service_name,
+            "category":     api.category,
+            "base_url":     manifest.get("base_url", ""),
+            "auth_type":    (manifest.get("auth") or {}).get("type", "unknown"),
+            "intents_count": len(manifest.get("intents", [])),
+            "manifest_url": f"https://aiaam.xyz/api/v1/services/{api.service_name}/mai-api.json",
+            "trust": {"reliability_score": api.reliability_score},
+        })
+
+    if background_tasks and request:
+        background_tasks.add_task(
+            _log_search_bg,
+            query=q,
+            catalog="mai_api",
+            results_count=len(results),
+            result_aids=[r["service_name"] for r in results],
+            user_agent=request.headers.get("user-agent", ""),
+            raw_ip=request.client.host if request.client else "",
+        )
+
+    return {"query": q, "count": len(results), "results": results}
+
+
 @app.get("/api/v1/search")
 def unified_search(
     q: str = Query(..., description="Intent phrase, e.g. 'audio transcription', 'vector database'"),
+    request: Request = None,
+    background_tasks: BackgroundTasks = None,
     session: Session = Depends(get_session),
 ):
     """
@@ -859,6 +953,20 @@ def unified_search(
             "manifest_url": f"https://aiaam.xyz/api/v1/services/{api.service_name}/mai-api.json",
             "trust": {"reliability_score": api.reliability_score},
         })
+
+    if background_tasks and request:
+        background_tasks.add_task(
+            _log_search_bg,
+            query=q,
+            catalog="both",
+            results_count=len(results),
+            result_aids=[
+                r.get("identity", {}).get("aid") or r.get("service_name")
+                for r in results
+            ],
+            user_agent=request.headers.get("user-agent", ""),
+            raw_ip=request.client.host if request.client else "",
+        )
 
     return {
         "query":   q,
@@ -1195,6 +1303,89 @@ def admin_stats(
     if x_admin_secret != ADMIN_SECRET:
         raise HTTPException(status_code=403, detail="Forbidden")
     return get_stats(session)
+
+
+@app.get("/admin/search-trends")
+def search_trends(
+    session: Session = Depends(get_session),
+    x_admin_secret: Optional[str] = Header(default=None, alias="X-Admin-Secret"),
+):
+    """
+    Search query analytics — drives catalog expansion decisions.
+    The zero-results bucket shows what agents need that we don't have yet.
+    Protected: X-Admin-Secret required.
+    """
+    if x_admin_secret != ADMIN_SECRET:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    cutoff_7d  = datetime.utcnow() - timedelta(days=7)
+    cutoff_24h = datetime.utcnow() - timedelta(hours=24)
+
+    # Top 20 queries by frequency (last 7 days)
+    top_queries_rows = session.exec(sa_text("""
+        SELECT query, COUNT(*) as n, AVG(results_count) as avg_results
+        FROM search_logs
+        WHERE timestamp >= :cutoff
+        GROUP BY LOWER(query)
+        ORDER BY n DESC
+        LIMIT 20
+    """).bindparams(cutoff=cutoff_7d)).all()
+
+    # Top 20 zero-result queries (last 7 days) — catalog expansion signal
+    zero_result_rows = session.exec(sa_text("""
+        SELECT query, COUNT(*) as n, MAX(timestamp) as last_seen
+        FROM search_logs
+        WHERE timestamp >= :cutoff AND results_count = 0
+        GROUP BY LOWER(query)
+        ORDER BY n DESC
+        LIMIT 20
+    """).bindparams(cutoff=cutoff_7d)).all()
+
+    # Queries per hour (last 24h)
+    hourly_rows = session.exec(sa_text("""
+        SELECT
+            strftime('%Y-%m-%dT%H:00:00', timestamp) as hour,
+            COUNT(*) as queries
+        FROM search_logs
+        WHERE timestamp >= :cutoff
+        GROUP BY hour
+        ORDER BY hour
+    """).bindparams(cutoff=cutoff_24h)).all()
+
+    # Unique user_agents
+    ua_rows = session.exec(sa_text("""
+        SELECT user_agent, COUNT(*) as n
+        FROM search_logs
+        WHERE timestamp >= :cutoff AND user_agent IS NOT NULL AND user_agent != ''
+        GROUP BY user_agent
+        ORDER BY n DESC
+        LIMIT 20
+    """).bindparams(cutoff=cutoff_7d)).all()
+
+    total_searches = session.exec(
+        select(func.count(SearchLog.id)).where(SearchLog.timestamp >= cutoff_7d)
+    ).one() or 0
+
+    return {
+        "period": "last_7_days",
+        "total_searches_7d": total_searches,
+        "top_queries": [
+            {"query": r[0], "count": r[1], "avg_results": round(r[2] or 0, 1)}
+            for r in top_queries_rows
+        ],
+        "zero_result_queries": [
+            {"query": r[0], "count": r[1], "last_seen": str(r[2])}
+            for r in zero_result_rows
+        ],
+        "queries_per_hour_24h": [
+            {"hour": r[0], "queries": r[1]}
+            for r in hourly_rows
+        ],
+        "unique_user_agents": [
+            {"user_agent": r[0], "count": r[1]}
+            for r in ua_rows
+        ],
+    }
 
 
 # =====================================================================

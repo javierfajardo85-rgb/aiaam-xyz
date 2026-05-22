@@ -235,6 +235,24 @@ class CompiledAPI(SQLModel, table=True):
     tags:             Optional[str]      = Field(default=None)  # space-separated capability keywords
 
 
+# =====================================================================
+# SEARCH LOGS — query telemetry for catalog expansion decisions
+# =====================================================================
+
+class SearchLog(SQLModel, table=True):
+    """Every search query recorded asynchronously. Never blocks responses."""
+    __tablename__ = "search_logs"
+
+    id:            Optional[int]  = Field(default=None, primary_key=True)
+    query:         str
+    catalog:       str            = Field(default="both")   # mai1 | mai_api | both
+    results_count: int            = Field(default=0)
+    result_aids:   Optional[list] = Field(default=None, sa_column=Column(JSON))
+    user_agent:    Optional[str]  = Field(default=None)
+    ip_hash:       Optional[str]  = Field(default=None)     # SHA-256 prefix, never raw IP
+    timestamp:     datetime       = Field(default_factory=datetime.utcnow, index=True)
+
+
 def tool_to_mai1(tool: Tool, include_action: bool = True) -> dict:
     """Convert DB Tool to MAI-1 response dict."""
     identity: dict = {"aid": tool.aid, "version": tool.version}
