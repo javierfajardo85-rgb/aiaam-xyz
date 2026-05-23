@@ -263,6 +263,24 @@ def _infer_tags(tool) -> str:
 # SEARCH HELPERS
 # =====================================================================
 
+def _sanitize_query(q: str) -> str:
+    """
+    Clean a search query before processing.
+    Agents sometimes pass multi-line strings (e.g. "send email\n\nresponse")
+    when they concatenate prompt text with the query. We take only the first
+    non-empty line and strip surrounding whitespace + punctuation noise.
+    Max 120 chars to prevent abuse.
+    """
+    # Take only the first non-empty line
+    first_line = next((l.strip() for l in q.splitlines() if l.strip()), "")
+    # Strip common trailing noise chars
+    first_line = first_line.rstrip(".:,;!?/\\")
+    # Collapse internal whitespace
+    first_line = " ".join(first_line.split())
+    # Hard cap
+    return first_line[:120]
+
+
 def _tool_search_clause(q: str):
     """
     Build a SQLAlchemy WHERE clause for a free-text Tool query.
@@ -806,12 +824,11 @@ def search_tools(
     not_dead = or_(Tool.status.is_(None), Tool.status != "dead")
     conditions = [verified, not_dead]
 
-    if q and q.strip():
+    q = _sanitize_query(q) if q else ""
+    if q:
         clause = _tool_search_clause(q)
         if clause is not None:
             conditions.append(clause)
-    else:
-        q = ""
 
     if category and category.strip():
         conditions.append(Tool.source_platform.ilike(f"%{category.strip().lower()}%"))
@@ -863,6 +880,7 @@ def search_apis(
     For a unified search across both catalogs use GET /api/v1/search.
     """
     from models import CompiledAPI
+    q = _sanitize_query(q)
     api_clause = _api_search_clause(q)
     api_where = [CompiledAPI.verified == True]
     if api_clause is not None:
@@ -925,6 +943,7 @@ def unified_search(
       ?q=task+queue           → celery (tool)
     """
     from models import CompiledAPI
+    q = _sanitize_query(q)
     results: list[dict] = []
 
     # --- MAI-1 tools ---
