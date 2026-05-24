@@ -270,7 +270,12 @@ def _sanitize_query(q: str) -> str:
     when they concatenate prompt text with the query. We take only the first
     non-empty line and strip surrounding whitespace + punctuation noise.
     Max 120 chars to prevent abuse.
+
+    Handles both real newlines AND literal escape sequences like \\n, \\r
+    that some agents send as two characters rather than actual control chars.
     """
+    # Replace literal \n \r sequences (two chars) before splitting
+    q = q.replace("\\n", "\n").replace("\\r", "\r").replace("\\t", " ")
     # Take only the first non-empty line
     first_line = next((l.strip() for l in q.splitlines() if l.strip()), "")
     # Strip common trailing noise chars
@@ -530,6 +535,7 @@ def on_startup():
     _backfill_tags()
     _migrate_compiled_apis_tags_column()
     _backfill_api_tags()
+    _migrate_dedup_categories()
 
 
 def _migrate_add_tags_column():
@@ -576,6 +582,21 @@ def _migrate_compiled_apis_tags_column():
             conn.commit()
     except Exception:
         pass
+
+
+def _migrate_dedup_categories():
+    """Idempotent: rename 'payment' → 'payments' in compiled_apis (dedup typo)."""
+    from models import CompiledAPI
+    with Session(engine) as session:
+        typos = session.exec(
+            select(CompiledAPI).where(CompiledAPI.category == "payment")
+        ).all()
+        if typos:
+            for api in typos:
+                api.category = "payments"
+                session.add(api)
+            session.commit()
+            print(f"[startup] dedup: renamed {len(typos)} 'payment' → 'payments' in compiled_apis")
 
 
 def _backfill_api_tags():
