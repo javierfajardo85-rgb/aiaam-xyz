@@ -7,7 +7,7 @@ from typing import Optional
 from sqlmodel import Session, select, func
 
 import time
-from models import TaxLog, Tool, TaxPayload, AgentLog
+from models import TaxLog, Tool, TaxPayload, AgentLog, RequestLog
 
 
 # Estimated tokens an AI saves by using AIAAM instead of reading source directly
@@ -188,7 +188,7 @@ def get_stats(session: Session) -> dict:
         select(func.sum(TaxLog.tokens_saved_estimate))
     ).one() or 0
 
-    # Top User-Agents
+    # Top User-Agents — all time
     top_agents_rows = session.exec(
         select(TaxLog.user_agent, func.count(TaxLog.id).label("count"))
         .group_by(TaxLog.user_agent)
@@ -196,6 +196,33 @@ def get_stats(session: Session) -> dict:
         .limit(10)
     ).all()
     top_agents = [{"user_agent": ua, "requests": c} for ua, c in top_agents_rows]
+
+    # Top User-Agents — last 24h (separate so dashboard can show "today" view)
+    top_agents_24h_rows = session.exec(
+        select(TaxLog.user_agent, func.count(TaxLog.id).label("count"))
+        .where(TaxLog.timestamp >= day_ago)
+        .group_by(TaxLog.user_agent)
+        .order_by(func.count(TaxLog.id).desc())
+        .limit(15)
+    ).all()
+    top_agents_24h = [{"user_agent": ua, "requests": c} for ua, c in top_agents_24h_rows]
+
+    # Top crawlers/bots — last 24h from RequestLog (ALL requests, not just tool fetches)
+    # This is where real crawlers (ClaudeBot, Amazonbot, MJ12bot) show up
+    try:
+        top_crawlers_24h_rows = session.exec(
+            select(RequestLog.user_agent, RequestLog.agent_type, func.count(RequestLog.id).label("count"))
+            .where(RequestLog.timestamp >= day_ago)
+            .group_by(RequestLog.user_agent, RequestLog.agent_type)
+            .order_by(func.count(RequestLog.id).desc())
+            .limit(15)
+        ).all()
+        top_crawlers_24h = [
+            {"user_agent": ua, "agent_type": atype, "requests": c}
+            for ua, atype, c in top_crawlers_24h_rows
+        ]
+    except Exception:
+        top_crawlers_24h = []
 
     # Top trending keywords
     top_trends_rows = session.exec(
@@ -246,6 +273,8 @@ def get_stats(session: Session) -> dict:
             "failed": failures,
         },
         "top_user_agents": top_agents,
+        "top_user_agents_24h": top_agents_24h,
+        "top_crawlers_24h": top_crawlers_24h,
         "top_trends": top_trends,
         "top_reliable_tools": top_tools,
     }
