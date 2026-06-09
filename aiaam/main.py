@@ -814,6 +814,135 @@ def robots():
         "Disallow: /admin/\n"
         "\n"
         "Sitemap: https://aiaam.xyz/sitemap.xml\n"
+        "\n"
+        "# llms.txt — structured catalog for LLM consumption\n"
+        "# https://aiaam.xyz/llms.txt\n"
+    )
+
+
+# =====================================================================
+# LLMS.TXT — structured catalog for LLM / AI crawler consumption
+# Format: https://llmstxt.org  (H1 title, description, H2 sections, links)
+# Indexed by: GPTBot, Claude-Web, Perplexitybot, Google-Extended, etc.
+# =====================================================================
+
+@app.get("/llms.txt", response_class=PlainTextResponse)
+def llms_txt(session: Session = Depends(get_session)):
+    """
+    Machine-readable catalog of all verified MAI-1 contracts.
+    Follows the llmstxt.org standard so AI crawlers can index tool contracts
+    without parsing the full API documentation.
+    """
+    tools = session.exec(
+        select(Tool)
+        .where(Tool.verified == True)
+        .order_by(Tool.aid)
+    ).all()
+
+    lines = [
+        "# aiaam.xyz — MAI-1 Tool Registry",
+        "",
+        "> Semantic compression layer for AI tools. "
+        "MAI-1 contracts let agents discover how to install and invoke "
+        "libraries in a single API call — without parsing README files "
+        "or relying on hallucinated documentation.",
+        "",
+        "## Quick Start",
+        "",
+        "```",
+        "GET https://aiaam.xyz/api/v1/tools/{aid}",
+        "GET https://aiaam.xyz/api/v1/tools?q=image+processing",
+        "GET https://aiaam.xyz/api/v1/tools/trending",
+        "MCP: https://aiaam.xyz/mcp",
+        "```",
+        "",
+        "## Contract Structure (MAI-1)",
+        "",
+        "Each contract has four sections:",
+        "- **aid**: unique identifier (e.g. `pypi-pandas`)",
+        "- **logic**: input_schema + output_schema",
+        "- **trust**: reliability_score + latency_ms",
+        "- **action**: install_cmd + execute_cmd",
+        "",
+        "## Verified Tools",
+        "",
+    ]
+
+    for tool in tools:
+        # One line per tool: - [aid](url): install_cmd — tags
+        url = f"https://aiaam.xyz/api/v1/tools/{tool.aid}"
+        desc_parts = []
+        if tool.install_cmd:
+            desc_parts.append(f"`{tool.install_cmd}`")
+        if tool.tags:
+            first_tags = " · ".join(tool.tags.split()[:4])
+            desc_parts.append(first_tags)
+        desc = " — ".join(desc_parts) if desc_parts else tool.aid
+        lines.append(f"- [{tool.aid}]({url}): {desc}")
+
+    lines += [
+        "",
+        "## Optional",
+        "",
+        "- [Full API docs](https://aiaam.xyz/docs): OpenAPI spec",
+        "- [MCP server](https://aiaam.xyz/mcp): tool calls via JSON-RPC 2.0",
+        "- [Agent manifest](https://aiaam.xyz/agent.json): agent discovery metadata",
+        "",
+        f"> Updated: {datetime.utcnow().strftime('%Y-%m-%d')} · "
+        f"{len(tools)} verified contracts",
+    ]
+
+    return "\n".join(lines)
+
+
+# =====================================================================
+# SITEMAP.XML — for SEO and AI crawler indexing
+# =====================================================================
+
+@app.get("/sitemap.xml", response_class=PlainTextResponse)
+def sitemap_xml(session: Session = Depends(get_session)):
+    """Standard XML sitemap listing all tool pages for crawler indexing."""
+    tools = session.exec(
+        select(Tool).where(Tool.verified == True)
+    ).all()
+
+    now_str = datetime.utcnow().strftime("%Y-%m-%d")
+
+    urls = [
+        f"""  <url>
+    <loc>https://aiaam.xyz/</loc>
+    <lastmod>{now_str}</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>1.0</priority>
+  </url>""",
+        f"""  <url>
+    <loc>https://aiaam.xyz/llms.txt</loc>
+    <lastmod>{now_str}</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.9</priority>
+  </url>""",
+        f"""  <url>
+    <loc>https://aiaam.xyz/agent.json</loc>
+    <lastmod>{now_str}</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.9</priority>
+  </url>""",
+    ]
+
+    for tool in tools:
+        urls.append(f"""  <url>
+    <loc>https://aiaam.xyz/api/v1/tools/{tool.aid}</loc>
+    <lastmod>{now_str}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>""")
+
+    body = "\n".join(urls)
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+        f"{body}\n"
+        "</urlset>"
     )
 
 

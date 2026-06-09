@@ -55,6 +55,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from database import engine, init_db
 from models import Tool, InjectedRepo
 from analytics import log_agent_run
+from reputation_guard import ReputationGuard
 
 load_dotenv()
 
@@ -66,6 +67,43 @@ _AGENT_TOPICS = {"agents", "llm", "langchain", "crewai", "autogen", "haystack",
                  "openai", "anthropic", "ai", "machine-learning", "nlp"}
 
 MAX_PRS_PER_RUN   = 3   # hard safety limit — never send bursts
+
+# =====================================================================
+# PRIORITY FILTER — determines which repos are worth the PR budget
+# =====================================================================
+
+# Tier 1 — agent/LLM frameworks: maximum priority, highest discovery value
+_PRIORITY_FRAMEWORKS = [
+    "langchain", "crewai", "autogpt", "haystack", "autogen", "langgraph",
+    "smolagents", "pydantic-ai", "agno", "camel", "dspy", "semantic-kernel",
+    "lmstudio", "ollama", "litellm",
+]
+
+# Tier 2 — high-use data/infra libs: broad agent usage, good reach
+_PRIORITY_LIBS = [
+    "pandas", "numpy", "requests", "sqlalchemy", "fastapi", "pydantic",
+    "redis", "celery", "boto3", "httpx", "aiohttp", "pymongo",
+    "chromadb", "pinecone", "weaviate", "qdrant",
+]
+
+
+def should_inject(repo_name: str) -> tuple[bool, str]:
+    """
+    Decide whether a repo is worth a PR slot.
+    Returns (approved, tier) where tier is "framework" | "library" | "skip".
+
+    Tier "framework" gets priority scheduling.
+    Tier "library" is queued after frameworks.
+    "skip" means don't spend a PR slot on this repo.
+    """
+    name = repo_name.lower()
+    for fw in _PRIORITY_FRAMEWORKS:
+        if fw in name:
+            return True, "framework"
+    for lib in _PRIORITY_LIBS:
+        if lib in name:
+            return True, "library"
+    return False, "skip"
 
 
 # =====================================================================
@@ -336,6 +374,10 @@ The block follows the MAI-1 four-section structure:
 No external services are queried. The file lives entirely in this repo \
 and can be maintained by the team like any other documentation.
 
+The MAI-1 format is an open standard. A public registry of pre-compiled \
+contracts for common libraries is available at https://aiaam.xyz if you want \
+to see how other projects have adopted it.
+
 Feel free to close if this doesn't fit the project.
 """
 
@@ -558,9 +600,11 @@ def submit_pr_for_record(
     gh_user: str,
     token: str,
     dry_run: bool = False,
+    db_session=None,
+    mode: str = "bulk",
 ) -> Optional[str]:
     """
-    Full flow: fork → branch → commit AGENTS.md → open PR.
+    Full flow: reputation check → fork → branch → commit AGENTS.md → open PR.
     Returns PR URL on success, None otherwise.
     """
     pair = _owner_repo(record.repo_url)
@@ -570,6 +614,15 @@ def submit_pr_for_record(
     owner, repo = pair
 
     print(f"    repo     : {owner}/{repo}")
+
+    # ── Reputation Guard — must pass before touching GitHub ──────────────
+    if not dry_run:
+        guard = ReputationGuard(token=token)
+        verdict = guard.check(owner, repo, mode=mode, db_session=db_session)
+        print(f"    guard    : {verdict}")
+        if not verdict.approved:
+            print(f"    BLOCKED  — reputation guard rejected this repo")
+            return None
 
     # REGLA 1 — Final safety check: abort if upstream already has AGENTS.md
     upstream_agents_md = fetch_agents_md(record.repo_url)
@@ -680,7 +733,10 @@ def run_submit_pr(
                 continue
 
             print(f"  → {record.aid}")
-            pr_url = submit_pr_for_record(record, tool, gh_user, token, dry_run=dry_run)
+            pr_url = submit_pr_for_record(
+                record, tool, gh_user, token,
+                dry_run=dry_run, db_session=session, mode="bulk",
+            )
 
             if pr_url and pr_url != "DRY_RUN":
                 record.pr_url = pr_url
@@ -802,6 +858,18 @@ def run_reapproach(
                 results["skipped"] += 1
                 print()
                 continue
+
+            # ── Reputation Guard ─────────────────────────────────────────
+            if not dry_run:
+                guard = ReputationGuard(token=token)
+                # reapproach uses strategic mode (repo may exceed bulk star ceiling)
+                verdict = guard.check(owner, repo, mode="strategic", db_session=session)
+                print(f"    guard    : {verdict}")
+                if not verdict.approved:
+                    print(f"    BLOCKED  — reputation guard rejected this repo")
+                    results["skipped"] += 1
+                    print()
+                    continue
 
             # Rebuild content with V3 template
             content = _build_agents_md_v3(tool)
