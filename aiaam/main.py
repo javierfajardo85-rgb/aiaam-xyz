@@ -1477,6 +1477,41 @@ def ingest_tool(
     return {"status": "ok", "aid": tool.aid}
 
 
+class TrustUpdate(BaseModel):
+    aid: str
+    reliability_score: float = Field(ge=0.0, le=1.0)
+
+
+@app.post("/admin/update-trust")
+def update_trust(
+    updates: list[TrustUpdate],
+    session: Session = Depends(get_session),
+    x_admin_secret: Optional[str] = Header(default=None, alias="X-Admin-Secret"),
+):
+    """
+    Admin-only. Batch-update ONLY reliability_score + reliability_calculated_at.
+    Safe alternative to /api/v1/ingest (which merges the whole row): scores are
+    computed locally by reliability_scorer.py from public GitHub metadata and
+    pushed here, leaving telemetry counters and verified status untouched.
+    """
+    if x_admin_secret != ADMIN_SECRET:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    updated, missing = [], []
+    now = datetime.utcnow()
+    for u in updates:
+        tool = session.get(Tool, u.aid)
+        if tool is None:
+            missing.append(u.aid)
+            continue
+        tool.reliability_score = u.reliability_score
+        tool.reliability_calculated_at = now
+        session.add(tool)
+        updated.append(u.aid)
+    session.commit()
+    return {"status": "ok", "updated": len(updated), "missing": missing}
+
+
 # =====================================================================
 # ADMIN STATS — Protected telemetry endpoint
 # =====================================================================
