@@ -1,7 +1,7 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
   "name": "io.github.javierfajardo85-rgb/aiaam",
-  "description": "MAI-1 tool registry for AI agents. Search 100+ verified tool contracts (install command, I/O schema, live reliability score) in a single call instead of parsing READMEs.",
+  "description": "MAI-1 registry: search 100+ verified AI tool contracts with live reliability scores in one call.",
   "repository": {
     "url": "https://github.com/javierfajardo85-rgb/aiaam-xyz",
     "source": "github"
