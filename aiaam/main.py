@@ -760,6 +760,8 @@ def mai_api_page(request: Request, session: Session = Depends(get_session)):
 
 
 @app.get("/.well-known/mcp.json")
+@app.get("/.well-known/agent.json")
+@app.get("/agent.json")
 def well_known_mcp(session: Session = Depends(get_session)):
     """
     Agent discovery standard — like robots.txt for AI agents.
@@ -884,9 +886,10 @@ def llms_txt(session: Session = Depends(get_session)):
         "",
         "## Optional",
         "",
-        "- [Full API docs](https://aiaam.xyz/docs): OpenAPI spec",
+        "- [OpenAPI spec](https://aiaam.xyz/openapi.json): full API schema",
         "- [MCP server](https://aiaam.xyz/mcp): tool calls via JSON-RPC 2.0",
         "- [Agent manifest](https://aiaam.xyz/agent.json): agent discovery metadata",
+        "- [MCP discovery](https://aiaam.xyz/.well-known/mcp.json): MCP server metadata",
         "",
         f"> Updated: {datetime.utcnow().strftime('%Y-%m-%d')} · "
         f"{len(tools)} verified contracts",
