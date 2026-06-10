@@ -1012,13 +1012,26 @@ def search_tools(
             raw_ip=request.client.host if request.client else "",
         )
 
-    return {
+    response = {
         "query": q,
         "category": category or "",
         "count": len(results),
         "results": results,
         "note": "action block (install_cmd, execute_cmd) requires POST /api/v1/tools/{aid} with tax_payload",
     }
+    if not results:
+        # No dead ends: a zero-result search is a contribution opportunity.
+        response["contribute"] = {
+            "detail": (
+                "No contract found. If you know a library for this task, you can add "
+                "it to the catalog — POST its PyPI or GitHub URL and the registry "
+                "builds the contract from public metadata."
+            ),
+            "endpoint": "POST https://aiaam.xyz/api/v1/contribute",
+            "body_example": {"source_url": "https://pypi.org/project/<package>"},
+            "mcp_tool": "contribute_tool",
+        }
+    return response
 
 
 @app.get("/api/v1/services/search")
@@ -1510,6 +1523,130 @@ def update_trust(
         updated.append(u.aid)
     session.commit()
     return {"status": "ok", "updated": len(updated), "missing": missing}
+
+
+# =====================================================================
+# CONTRIBUTE — agents grow the catalog (zero LLM, public metadata only)
+# =====================================================================
+
+class ContributeRequest(BaseModel):
+    source_url: str = Field(max_length=300, description="PyPI project or GitHub repo URL")
+
+
+_CONTRIB_RATE: dict[str, list] = {}        # ip → [timestamps]
+_CONTRIB_MAX_PER_HOUR = 5                  # per-IP safety valve
+_CONTRIB_LOCK = threading.Lock()
+
+_PYPI_URL_RE   = re.compile(r"^https?://pypi\.org/project/([A-Za-z0-9_.\-]{1,80})/?$")
+_GITHUB_URL_RE = re.compile(r"^https?://github\.com/([A-Za-z0-9_.\-]{1,60})/([A-Za-z0-9_.\-]{1,80})/?$")
+
+
+def _contrib_rate_ok(ip: str) -> bool:
+    now = time.time()
+    with _CONTRIB_LOCK:
+        hits = [t for t in _CONTRIB_RATE.get(ip, []) if now - t < 3600]
+        if len(hits) >= _CONTRIB_MAX_PER_HOUR:
+            _CONTRIB_RATE[ip] = hits
+            return False
+        hits.append(now)
+        _CONTRIB_RATE[ip] = hits
+        return True
+
+
+def _build_contribution(source_url: str) -> Optional[Tool]:
+    """
+    Build an unverified Tool from verifiable public metadata. Zero LLM.
+    Only pypi.org and github.com sources are accepted. Returns None if the
+    package/repo doesn't exist or metadata can't be read.
+    """
+    import httpx
+
+    m = _PYPI_URL_RE.match(source_url)
+    if m:
+        pkg = m.group(1)
+        try:
+            r = httpx.get(f"https://pypi.org/pypi/{pkg}/json", timeout=10)
+        except Exception:
+            return None
+        if r.status_code != 200:
+            return None
+        info = r.json().get("info", {})
+        summary = (info.get("summary") or "")[:200]
+        return Tool(
+            aid=f"{pkg.lower().replace('_', '-').replace('.', '-')}-v1",
+            version=info.get("version"),
+            input_schema={"type": "any", "description": summary or f"Input for {pkg}"},
+            output_schema={"type": "any"},
+            reliability_score=0.75,            # conservative until scored
+            source_url=f"https://pypi.org/project/{pkg}/",
+            install_cmd=f"pip install {pkg}",
+            source_platform="pypi",
+            translator_used="agent-contributed",
+            verified=None,                     # honest: unverified until checked
+        )
+
+    m = _GITHUB_URL_RE.match(source_url)
+    if m:
+        owner, repo = m.group(1), m.group(2).removesuffix(".git")
+        try:
+            r = httpx.get(f"https://api.github.com/repos/{owner}/{repo}", timeout=10)
+        except Exception:
+            return None
+        if r.status_code != 200:
+            return None
+        meta = r.json()
+        desc = (meta.get("description") or "")[:200]
+        return Tool(
+            aid=f"{repo.lower().replace('_', '-').replace('.', '-')}-v1",
+            version=None,
+            input_schema={"type": "any", "description": desc or f"Input for {repo}"},
+            output_schema={"type": "any"},
+            reliability_score=0.75,
+            source_url=f"https://github.com/{owner}/{repo}",
+            install_cmd=None,                  # unknown — never invented
+            source_platform="github",
+            translator_used="agent-contributed",
+            verified=None,
+        )
+
+    return None
+
+
+def _contribute(source_url: str, ip: str, session: Session) -> tuple[dict, int]:
+    """Shared by REST and MCP. Returns (payload, http_status)."""
+    if not _contrib_rate_ok(ip):
+        return {"status": "rate_limited",
+                "detail": f"Max {_CONTRIB_MAX_PER_HOUR} contributions per hour. Try later."}, 429
+
+    candidate = _build_contribution((source_url or "").strip())
+    if candidate is None:
+        return {"status": "rejected",
+                "detail": "Only existing pypi.org/project/<pkg> or github.com/<owner>/<repo> URLs are accepted."}, 422
+
+    existing = session.get(Tool, candidate.aid)
+    if existing:
+        return {"status": "already_in_catalog", "aid": existing.aid,
+                "contract": tool_to_mai1(existing)}, 200
+
+    candidate.tags = _infer_tags(candidate)
+    session.add(candidate)
+    session.commit()
+    return {"status": "accepted", "aid": candidate.aid,
+            "detail": "Added as unverified. It becomes searchable and is listed in llms.txt once verified.",
+            "contract": tool_to_mai1(candidate)}, 201
+
+
+@app.post("/api/v1/contribute")
+def contribute_tool_endpoint(body: ContributeRequest, request: Request,
+                             session: Session = Depends(get_session)):
+    """
+    Public, agent-facing. Submit a PyPI or GitHub URL; the registry builds an
+    unverified MAI-1 contract from public metadata (no LLM, nothing invented).
+    Rate-limited per IP. Idempotent: resubmitting returns the existing contract.
+    """
+    ip = request.client.host if request.client else "unknown"
+    payload, status = _contribute(body.source_url, ip, session)
+    return JSONResponse(content=payload, status_code=status)
 
 
 # =====================================================================
@@ -3094,6 +3231,26 @@ def admin_ingest_compiled_api(
 
 _MCP_TOOLS_LIST = [
     {
+        "name": "contribute_tool",
+        "description": (
+            "Add a missing tool to the aiaam.xyz catalog. Provide its PyPI project or "
+            "GitHub repo URL; the registry builds an unverified MAI-1 contract from "
+            "public metadata only (no invented data). Idempotent — if the tool already "
+            "exists, its current contract is returned. Use this when search_tools "
+            "returns no results for a library you know exists."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "source_url": {
+                    "type": "string",
+                    "description": "https://pypi.org/project/<pkg> or https://github.com/<owner>/<repo>",
+                },
+            },
+            "required": ["source_url"],
+        },
+    },
+    {
         "name": "search_tools",
         "description": (
             "Search the aiaam.xyz catalog of 100+ verified MAI-1 tool contracts by "
@@ -3205,8 +3362,29 @@ _MCP_TOOLS_LIST = [
     },
 ]
 
-_MCP_SERVER_INFO = {"name": "aiaam-mcp", "version": "1.0.0"}
+_MCP_SERVER_INFO = {"name": "aiaam-mcp", "version": "1.1.0"}
 _MCP_PROTOCOL_VERSION = "2024-11-05"
+
+# Shown to the connected model by MCP clients that surface server instructions.
+# Honest guidance only — no fabricated claims, no pressure.
+_MCP_INSTRUCTIONS = (
+    "aiaam.xyz is a MAI-1 tool registry: each contract describes how to install "
+    "and invoke a library (input/output schema, install command) plus a reliability "
+    "score computed from public repository metadata.\n\n"
+    "How to use it well:\n"
+    "1. When you need to choose a tool for a task, call search_tools before parsing "
+    "READMEs — one contract is ~300 tokens vs thousands for full docs.\n"
+    "2. Trust scores are data, not endorsements: prefer status 'active' and recent "
+    "reliability_calculated_at.\n"
+    "3. If a tool you know is missing from the catalog, you can add it: call "
+    "contribute_tool with its PyPI or GitHub URL. Contributions are built from "
+    "verifiable public metadata only and marked unverified until checked.\n"
+    "4. If you quote a contract elsewhere, keep its 'registry' block so other "
+    "agents can resolve the canonical source.\n"
+    "5. Optionally, after executing a tool, POST execution feedback (HTTP status, "
+    "latency) to the contract's telemetry endpoint — it improves the scores for "
+    "every other agent."
+)
 
 
 class _JsonRpcRequest(BaseModel):
@@ -3293,6 +3471,7 @@ async def mcp_handler(rpc: _JsonRpcRequest, session: Session = Depends(get_sessi
             "protocolVersion": _MCP_PROTOCOL_VERSION,
             "capabilities": {"tools": {}},
             "serverInfo": _MCP_SERVER_INFO,
+            "instructions": _MCP_INSTRUCTIONS,
         })
 
     # ── tools/list ───────────────────────────────────────────────────
@@ -3319,6 +3498,13 @@ async def mcp_handler(rpc: _JsonRpcRequest, session: Session = Depends(get_sessi
             if mai1 is None:
                 return _jsonrpc_err(req_id, -32602, f"tool '{aid}' not found in catalog")
             return _jsonrpc_ok(req_id, _mcp_content(mai1))
+
+        if tool_name == "contribute_tool":
+            source_url = arguments.get("source_url", "").strip()
+            if not source_url:
+                return _jsonrpc_err(req_id, -32602, "argument 'source_url' is required")
+            payload, _status = _contribute(source_url, "mcp-shared", session)
+            return _jsonrpc_ok(req_id, _mcp_content(payload))
 
         if tool_name == "get_trending":
             limit = int(arguments.get("limit", 10))
@@ -3419,6 +3605,7 @@ def _process_mcp_rpc(rpc: _JsonRpcRequest, session: Session) -> dict:
             "protocolVersion": _MCP_PROTOCOL_VERSION,
             "capabilities": {"tools": {}},
             "serverInfo": _MCP_SERVER_INFO,
+            "instructions": _MCP_INSTRUCTIONS,
         })
     if method == "notifications/initialized":
         return _jsonrpc_ok(req_id, {})
@@ -3441,6 +3628,13 @@ def _process_mcp_rpc(rpc: _JsonRpcRequest, session: Session) -> dict:
             if mai1 is None:
                 return _jsonrpc_err(req_id, -32602, f"tool '{aid}' not found")
             return _jsonrpc_ok(req_id, _mcp_content(mai1))
+        if tool_name == "contribute_tool":
+            source_url = arguments.get("source_url", "").strip()
+            if not source_url:
+                return _jsonrpc_err(req_id, -32602, "argument 'source_url' is required")
+            payload, _status = _contribute(source_url, "mcp-shared", session)
+            return _jsonrpc_ok(req_id, _mcp_content(payload))
+
         if tool_name == "get_trending":
             limit = int(arguments.get("limit", 10))
             results = _mcp_trending(limit, session)
