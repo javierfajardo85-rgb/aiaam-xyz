@@ -2563,20 +2563,302 @@ _ADMIN_LOGIN_HTML = (
 )
 
 
+# =====================================================================
+# PULSE DASHBOARD — honest, named, explained
+# =====================================================================
+
+# Known visitor signatures, most specific first.
+# (regex, display_name, organisation, group)
+_VISITOR_SIGS = [
+    # Coding agents — the holy grail: AIs writing code right now
+    (re.compile(r"claude-code", re.I),                "Claude Code",      "Anthropic",     "coding_agent"),
+    (re.compile(r"github-copilot|copilot", re.I),     "GitHub Copilot",   "GitHub",        "coding_agent"),
+    (re.compile(r"cursor[\s/]", re.I),                "Cursor",           "Anysphere",     "coding_agent"),
+    (re.compile(r"windsurf", re.I),                   "Windsurf",         "Codeium",       "coding_agent"),
+    (re.compile(r"aider[\s/]", re.I),                 "Aider",            "open source",   "coding_agent"),
+    # AI answering a human right now (live fetch on behalf of a user)
+    (re.compile(r"chatgpt-user", re.I),               "ChatGPT (en vivo)",    "OpenAI",     "ai_live"),
+    (re.compile(r"perplexity-user", re.I),            "Perplexity (en vivo)", "Perplexity", "ai_live"),
+    (re.compile(r"amazon-quick", re.I),               "Amazon Quick",         "Amazon",     "ai_live"),
+    # AI indexers — reading the site to remember it
+    (re.compile(r"gptbot", re.I),                     "GPTBot",           "OpenAI",        "ai_indexer"),
+    (re.compile(r"oai-searchbot", re.I),              "OAI-SearchBot",    "OpenAI",        "ai_indexer"),
+    (re.compile(r"claudebot|anthropic-ai|claude-web", re.I), "ClaudeBot", "Anthropic",     "ai_indexer"),
+    (re.compile(r"perplexitybot", re.I),              "PerplexityBot",    "Perplexity",    "ai_indexer"),
+    (re.compile(r"google-extended|gemini-bot", re.I), "Google-Extended",  "Google AI",     "ai_indexer"),
+    (re.compile(r"ccbot", re.I),                      "CCBot",            "Common Crawl",  "ai_indexer"),
+    (re.compile(r"bytespider", re.I),                 "Bytespider",       "ByteDance",     "ai_indexer"),
+    (re.compile(r"meta-external|facebookexternal", re.I), "Meta crawler", "Meta",          "ai_indexer"),
+    (re.compile(r"cohere-ai", re.I),                  "Cohere",           "Cohere",        "ai_indexer"),
+    (re.compile(r"diffbot", re.I),                    "Diffbot",          "Diffbot",       "ai_indexer"),
+    # Search engines
+    (re.compile(r"googlebot", re.I),                  "Googlebot",        "Google Search", "search"),
+    (re.compile(r"bingbot|msnbot", re.I),             "Bingbot",          "Microsoft",     "search"),
+    (re.compile(r"duckduckbot", re.I),                "DuckDuckBot",      "DuckDuckGo",    "search"),
+    (re.compile(r"amazonbot", re.I),                  "Amazonbot",        "Amazon",        "search"),
+    (re.compile(r"yandexbot", re.I),                  "YandexBot",        "Yandex",        "search"),
+    (re.compile(r"baiduspider", re.I),                "Baiduspider",      "Baidu",         "search"),
+    (re.compile(r"slurp", re.I),                      "Yahoo Slurp",      "Yahoo",         "search"),
+    # SEO bots
+    (re.compile(r"ahrefsbot", re.I),                  "AhrefsBot",        "Ahrefs",        "seo"),
+    (re.compile(r"semrushbot", re.I),                 "SemrushBot",       "Semrush",       "seo"),
+    (re.compile(r"mj12bot", re.I),                    "MJ12bot",          "Majestic",      "seo"),
+    (re.compile(r"dotbot", re.I),                     "DotBot",           "Moz",           "seo"),
+    # Scripts & tools (many of these are our own)
+    (re.compile(r"python-requests|python-httpx", re.I), "Python script",  "—",             "script"),
+    (re.compile(r"^curl/|curl/", re.I),               "curl",             "—",             "script"),
+    (re.compile(r"undici|^node$|node-fetch", re.I),   "Node.js script",   "—",             "script"),
+    (re.compile(r"go-http-client", re.I),             "Go script",        "—",             "script"),
+    (re.compile(r"axios/", re.I),                     "axios script",     "—",             "script"),
+    (re.compile(r"testclient", re.I),                 "Test client",      "nuestro",       "script"),
+    (re.compile(r"scrapy", re.I),                     "Scrapy",           "—",             "script"),
+]
+
+_VISITOR_GROUPS = {
+    "coding_agent": {"label": "Agentes de programación", "emoji": "🤖",
+                     "hint": "IAs escribiendo código que usan nuestra API. El cliente más valioso."},
+    "ai_live":      {"label": "IA respondiendo a una persona", "emoji": "💬",
+                     "hint": "Una IA entró aquí en vivo para contestar la pregunta de un humano."},
+    "ai_indexer":   {"label": "IA memorizando el sitio", "emoji": "📚",
+                     "hint": "Robots de OpenAI, Anthropic, etc. leyendo aiaam para sus modelos."},
+    "search":       {"label": "Buscadores", "emoji": "🔍",
+                     "hint": "Google, Bing… nos indexan para resultados de búsqueda."},
+    "seo":          {"label": "Bots SEO", "emoji": "📊",
+                     "hint": "Empresas de análisis web. Ni buenos ni malos: ruido neutral."},
+    "script":       {"label": "Scripts y herramientas", "emoji": "⚙️",
+                     "hint": "Programas automáticos. Muchos son nuestros propios scripts de mantenimiento."},
+    "browser":      {"label": "Navegadores (personas)", "emoji": "🧑",
+                     "hint": "Visitas que parecen humanas. Ojo: muchos bots fingen ser Chrome."},
+    "unknown":      {"label": "Sin identificar", "emoji": "❓",
+                     "hint": "User-agents raros o falsos. La mayoría son bots anónimos."},
+}
+
+
+def _ago_es(dt: Optional[datetime]) -> str:
+    """'hace 3 min' / 'hace 2 h' / 'hace 5 días' — honest relative time."""
+    if dt is None:
+        return "nunca"
+    secs = (datetime.utcnow() - dt).total_seconds()
+    if secs < 90:        return "ahora mismo"
+    if secs < 3600:      return f"hace {int(secs // 60)} min"
+    if secs < 86400 * 2: return f"hace {int(secs // 3600)} h"
+    return f"hace {int(secs // 86400)} días"
+
+
+def _classify_visitor(ua: str) -> tuple[str, str, str]:
+    """Returns (display_name, org, group) for a UA string."""
+    for pat, name, org, group in _VISITOR_SIGS:
+        if pat.search(ua):
+            return name, org, group
+    if re.search(r"chrome/1[0-9]{2}|firefox/1[0-9]{2}", ua, re.I):
+        return "Navegador", "—", "browser"
+    if re.search(r"mozilla|safari|webkit", ua, re.I):
+        return "Navegador (dudoso)", "—", "unknown"
+    return "Desconocido", "—", "unknown"
+
+
+# Static catalog of AIAAM workers — codes must match log_agent_run() calls.
+_WORKER_CATALOG = [
+    ("B1", "Sentinel",         "Explorador",
+     "Sale a buscar herramientas nuevas para añadir al catálogo."),
+    ("B2", "Sanitizer",        "Inspector",
+     "Prueba las herramientas de verdad para comprobar que funcionan antes de marcarlas como verificadas."),
+    ("B3", "Context Injector", "Embajador",
+     "Lleva nuestros contratos MAI-1 a repositorios de GitHub mediante pull requests."),
+    ("B4", "Library Ghost",    "Bibliotecario",
+     "Revisa el catálogo y completa fichas con datos que falten."),
+    ("B5", "Tax Analyst",      "Contable",
+     "Analiza la telemetría que dejan los agentes al usar herramientas y actualiza las notas de fiabilidad."),
+    ("B7", "Push Agent",       "Mensajero",
+     "Sube herramientas preparadas en local hacia el servidor de producción."),
+]
+
+
+def _build_pulse_ctx(session: Session) -> dict:
+    """Honest dashboard context: named visitors, real worker activity,
+    all-time + windowed metrics clearly separated. Zero invented numbers."""
+    now  = datetime.utcnow()
+    s24h = now - timedelta(hours=24)
+    s7d  = now - timedelta(days=7)
+    s14d = now - timedelta(days=14)
+
+    # ── Catalog ──────────────────────────────────────────────────────
+    total_tools  = session.exec(select(func.count(Tool.aid))).one() or 0
+    verified     = session.exec(select(func.count(Tool.aid)).where(Tool.verified == True)).one() or 0
+    failed       = session.exec(select(func.count(Tool.aid)).where(Tool.verified == False)).one() or 0
+    pending      = total_tools - verified - failed
+    contributed  = session.exec(
+        select(func.count(Tool.aid)).where(Tool.translator_used == "agent-contributed")
+    ).one() or 0
+    recent_contribs = session.exec(
+        select(Tool).where(Tool.translator_used == "agent-contributed")
+        .order_by(Tool.created_at.desc()).limit(8)
+    ).all()
+
+    # ── Traffic: all-time AND windows, meaningful vs noise ───────────
+    def _traffic(since: Optional[datetime]) -> tuple[int, int]:
+        q_total = select(func.count(RequestLog.id))
+        if since is not None:
+            q_total = q_total.where(RequestLog.timestamp >= since)
+        total = session.exec(q_total).one() or 0
+        q_api = select(func.count(RequestLog.id)).where(
+            or_(RequestLog.path.startswith("/api/"), RequestLog.path.startswith("/mcp"))
+        )
+        if since is not None:
+            q_api = q_api.where(RequestLog.timestamp >= since)
+        api = session.exec(q_api).one() or 0
+        return total, api
+
+    t_all, api_all = _traffic(None)
+    t_7d,  api_7d  = _traffic(s7d)
+    t_24h, api_24h = _traffic(s24h)
+
+    # ── 14-day series (total vs meaningful) ──────────────────────────
+    raw = session.exec(
+        select(RequestLog.timestamp, RequestLog.path).where(RequestLog.timestamp >= s14d)
+    ).all()
+    day_keys = [(now - timedelta(days=13 - i)).strftime("%d %b") for i in range(14)]
+    series_total = {k: 0 for k in day_keys}
+    series_api   = {k: 0 for k in day_keys}
+    for ts, path in raw:
+        k = ts.strftime("%d %b")
+        if k in series_total:
+            series_total[k] += 1
+            if path.startswith(("/api/", "/mcp")):
+                series_api[k] += 1
+
+    # ── Visitors: named, grouped, with last-seen (all-time) ──────────
+    ua_rows = session.exec(
+        select(
+            RequestLog.user_agent,
+            func.count(RequestLog.id).label("n"),
+            func.max(RequestLog.timestamp).label("last"),
+        ).group_by(RequestLog.user_agent)
+    ).all()
+
+    visitors: dict = {}
+    group_counts: dict = defaultdict(int)
+    for ua, n, last in ua_rows:
+        name, org, group = _classify_visitor(ua or "")
+        group_counts[group] += n
+        key = (name, org, group)
+        if key not in visitors:
+            visitors[key] = {"name": name, "org": org, "group": group,
+                             "count": 0, "last": None, "ua_sample": (ua or "")[:100]}
+        visitors[key]["count"] += n
+        if last and (visitors[key]["last"] is None or last > visitors[key]["last"]):
+            visitors[key]["last"] = last
+
+    visitor_groups = []
+    for gkey, meta in _VISITOR_GROUPS.items():
+        members = sorted(
+            [v for v in visitors.values() if v["group"] == gkey],
+            key=lambda v: (v["last"] or datetime.min), reverse=True,
+        )
+        if not members:
+            continue
+        for v in members:
+            v["last_ago"] = _ago_es(v["last"])
+        visitor_groups.append({
+            "key": gkey, "label": meta["label"], "emoji": meta["emoji"],
+            "hint": meta["hint"], "total": group_counts[gkey],
+            "members": members[:8],
+        })
+    # Order: most meaningful groups first
+    _order = ["coding_agent", "ai_live", "ai_indexer", "search", "browser", "script", "seo", "unknown"]
+    visitor_groups.sort(key=lambda g: _order.index(g["key"]))
+
+    # ── Workers: real activity from agent_logs ───────────────────────
+    workers = []
+    for code, name, role, kid_desc in _WORKER_CATALOG:
+        last_run = session.exec(
+            select(AgentLog).where(AgentLog.agent_code == code)
+            .order_by(AgentLog.run_at.desc()).limit(1)
+        ).first()
+        runs_total = session.exec(
+            select(func.count(AgentLog.id)).where(AgentLog.agent_code == code)
+        ).one() or 0
+        workers.append({
+            "code": code, "name": name, "role": role, "kid_desc": kid_desc,
+            "runs_total": runs_total,
+            "last_run_ago": _ago_es(last_run.run_at) if last_run else "nunca",
+            "last_processed": last_run.items_processed if last_run else 0,
+            "last_new": last_run.items_new if last_run else 0,
+            "last_failed": last_run.items_failed if last_run else 0,
+            "last_summary": (last_run.summary or "")[:120] if last_run else "",
+            "active": bool(last_run and last_run.run_at >= s7d),
+        })
+
+    # ── Top tools (7d, API paths only) ───────────────────────────────
+    top_rows = session.exec(
+        select(RequestLog.path, func.count(RequestLog.id).label("n"))
+        .where(RequestLog.timestamp >= s7d, RequestLog.path.startswith("/api/v1/tools/"))
+        .group_by(RequestLog.path).order_by(func.count(RequestLog.id).desc()).limit(20)
+    ).all()
+    top_tools, seen = [], set()
+    for p, n in top_rows:
+        aid = p.replace("/api/v1/tools/", "").split("/")[0].split("?")[0]
+        if aid and aid not in seen and aid != "trending":
+            seen.add(aid)
+            top_tools.append({"aid": aid, "count": n})
+        if len(top_tools) == 8:
+            break
+
+    return {
+        "generated_at": now.strftime("%d %b %Y · %H:%M UTC"),
+        "tools": {"total": total_tools, "verified": verified,
+                  "pending": pending, "failed": failed, "contributed": contributed},
+        "recent_contribs": [
+            {"aid": t.aid, "ago": _ago_es(t.created_at), "src": t.source_platform}
+            for t in recent_contribs
+        ],
+        "traffic": {
+            "all": {"total": t_all, "api": api_all},
+            "d7":  {"total": t_7d,  "api": api_7d},
+            "h24": {"total": t_24h, "api": api_24h},
+        },
+        "series_days": day_keys,
+        "series_total": [series_total[k] for k in day_keys],
+        "series_api":   [series_api[k] for k in day_keys],
+        "visitor_groups": visitor_groups,
+        "workers": workers,
+        "top_tools": top_tools,
+    }
+
+
+@app.get("/admin/dashboard-legacy", response_class=HTMLResponse, include_in_schema=False)
+def admin_dashboard_legacy(
+    request: Request,
+    secret: Optional[str] = Query(default=None),
+    session: Session = Depends(get_session),
+):
+    """Previous dashboard, preserved unchanged (legacy policy)."""
+    if secret is None:
+        return HTMLResponse(content=_ADMIN_LOGIN_HTML)
+    if secret != ADMIN_SECRET:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    ctx = _build_dashboard_ctx(session)
+    ctx["request"] = request
+    response = templates.TemplateResponse("dashboard_legacy.html", ctx)
+    response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive"
+    return response
+
+
 @app.get("/admin/dashboard", response_class=HTMLResponse, include_in_schema=False)
 def admin_dashboard(
     request: Request,
     secret: Optional[str] = Query(default=None),
     session: Session = Depends(get_session),
 ):
-    """Original operational dashboard — traffic, tools, revenue, tax logs.
+    """Pulse dashboard — honest metrics, named visitors, explained in plain language.
     No secret → shows login form. Wrong secret → 403. Correct → full dashboard.
+    Previous version preserved at /admin/dashboard-legacy.
     """
     if secret is None:
         return HTMLResponse(content=_ADMIN_LOGIN_HTML)
     if secret != ADMIN_SECRET:
         raise HTTPException(status_code=403, detail="Forbidden")
-    ctx = _build_dashboard_ctx(session)
+    ctx = _build_pulse_ctx(session)
     ctx["request"] = request
     response = templates.TemplateResponse("dashboard.html", ctx)
     response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive"

@@ -1,552 +1,364 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="robots" content="noindex, nofollow, noarchive">
-<title>AIAAM Command Center</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>aiaam · pulso</title>
 <style>
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-:root {
-  --bg:        #F2F2F7;
-  --surface:   #FFFFFF;
-  --border:    #E5E5EA;
-  --text1:     #1C1C1E;
-  --text2:     #6E6E73;
-  --text3:     #AEAEB2;
-  --blue:      #007AFF;
-  --green:     #34C759;
-  --red:       #FF3B30;
-  --orange:    #FF9500;
-  --yellow:    #FFCC00;
-  --purple:    #AF52DE;
-  --teal:      #5AC8FA;
-  --indigo:    #5856D6;
-  --radius:    14px;
-  --shadow:    0 1px 4px rgba(0,0,0,.08), 0 0 0 1px rgba(0,0,0,.04);
-  --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
-}
-body { font-family: var(--font); background: var(--bg); color: var(--text1); font-size: 15px; line-height: 1.5; }
+  :root{
+    --bg:#f5f5f7; --card:#ffffff; --ink:#1d1d1f; --sub:#86868b;
+    --blue:#0071e3; --green:#34c759; --orange:#ff9f0a; --red:#ff3b30;
+    --radius:18px; --shadow:0 1px 3px rgba(0,0,0,.04),0 8px 24px rgba(0,0,0,.05);
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-font-smoothing:antialiased;}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text",
+                "Helvetica Neue",Helvetica,Arial,sans-serif;
+    background:var(--bg);color:var(--ink);padding:48px 24px 96px;
+  }
+  .wrap{max-width:1080px;margin:0 auto;}
+  header{margin-bottom:40px;}
+  header h1{font-size:40px;font-weight:700;letter-spacing:-.02em;}
+  header .sub{color:var(--sub);font-size:15px;margin-top:6px;}
+  .hint-global{color:var(--sub);font-size:13px;margin-top:10px;}
 
-.topbar {
-  background: rgba(255,255,255,.85);
-  backdrop-filter: saturate(180%) blur(20px);
-  -webkit-backdrop-filter: saturate(180%) blur(20px);
-  border-bottom: 1px solid var(--border);
-  padding: 0 24px;
-  height: 56px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  position: sticky; top: 0; z-index: 100;
-}
-.topbar-brand { font-weight: 700; font-size: 17px; letter-spacing: -.3px; }
-.topbar-brand span { color: var(--blue); }
-.topbar-meta { font-size: 12px; color: var(--text2); }
-.btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px;
-       border-radius: 9px; font-size: 13px; font-weight: 500; border: none; cursor: pointer; }
-.btn-ghost { background: transparent; color: var(--text2); border: 1px solid var(--border); }
-.main { max-width: 1320px; margin: 0 auto; padding: 24px 20px 60px; }
+  .grid{display:grid;gap:16px;}
+  .g4{grid-template-columns:repeat(auto-fit,minmax(230px,1fr));}
+  .g2{grid-template-columns:repeat(auto-fit,minmax(340px,1fr));}
 
-/* KPI grid */
-.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(155px, 1fr)); gap: 12px; margin-bottom: 24px; }
-.kpi-card { background: var(--surface); border-radius: var(--radius); padding: 16px 18px; box-shadow: var(--shadow); }
-.kpi-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .7px; color: var(--text2); margin-bottom: 7px; }
-.kpi-value { font-size: 30px; font-weight: 700; letter-spacing: -1px; line-height: 1; }
-.kpi-sub   { font-size: 11px; color: var(--text2); margin-top: 4px; }
-.kpi-pill  { display: inline-block; font-size: 10px; font-weight: 600; padding: 1px 7px;
-             border-radius: 20px; margin-right: 4px; vertical-align: middle; }
+  .card{
+    background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);
+    padding:26px 28px;cursor:pointer;transition:transform .15s ease, box-shadow .15s ease;
+    position:relative;
+  }
+  .card:hover{transform:translateY(-2px);box-shadow:0 2px 6px rgba(0,0,0,.05),0 14px 36px rgba(0,0,0,.09);}
+  .card .k{font-size:13px;font-weight:600;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;}
+  .card .v{font-size:46px;font-weight:600;letter-spacing:-.03em;margin-top:8px;line-height:1.05;}
+  .card .d{font-size:13px;color:var(--sub);margin-top:10px;line-height:1.5;}
+  .card .info{position:absolute;top:18px;right:20px;width:22px;height:22px;border-radius:50%;
+    background:var(--bg);color:var(--sub);font-size:13px;font-weight:600;
+    display:flex;align-items:center;justify-content:center;}
+  .pill{display:inline-block;font-size:12px;font-weight:600;border-radius:999px;
+    padding:3px 10px;margin-right:6px;margin-top:4px;}
+  .pill.green{background:#e8f8ec;color:#1d7a36;}
+  .pill.orange{background:#fff3e0;color:#b06000;}
+  .pill.red{background:#ffe9e7;color:#c0241a;}
 
-/* Section */
-.section { margin-bottom: 28px; }
-.section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
-.section-title  { font-size: 17px; font-weight: 700; letter-spacing: -.3px; }
-.card { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
-.card-header { padding: 16px 20px 0; display: flex; align-items: center; justify-content: space-between; }
-.card-title  { font-size: 12px; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: .5px; }
-.card-body   { padding: 16px 20px 20px; }
-.chart-grid  { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; margin-bottom: 24px; }
-.chart-wrap  { position: relative; height: 240px; }
+  section{margin-top:48px;}
+  section>h2{font-size:24px;font-weight:700;letter-spacing:-.01em;margin-bottom:6px;}
+  section>.s{color:var(--sub);font-size:14px;margin-bottom:20px;line-height:1.5;}
 
-/* Toggle */
-.toggle-group { display: inline-flex; background: var(--border); border-radius: 8px; padding: 2px; }
-.toggle-group button { padding: 4px 12px; border: none; background: transparent;
-  border-radius: 6px; font-size: 12px; font-weight: 500; cursor: pointer; color: var(--text2); }
-.toggle-group button.active { background: #fff; color: var(--text1); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+  .chart-card{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:28px;cursor:pointer;}
+  .bars{display:flex;align-items:flex-end;gap:6px;height:160px;margin-top:18px;}
+  .bcol{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%;}
+  .btot{width:100%;background:#e8e8ed;border-radius:6px 6px 0 0;display:flex;flex-direction:column;justify-content:flex-end;}
+  .bapi{width:100%;background:var(--blue);border-radius:6px 6px 0 0;}
+  .blab{font-size:10px;color:var(--sub);margin-top:8px;white-space:nowrap;}
+  .legend{display:flex;gap:18px;font-size:13px;color:var(--sub);}
+  .dot{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px;}
 
-/* Visitor table badges */
-.badge {
-  display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 8px;
-  border-radius: 20px; white-space: nowrap;
-}
-.badge-elite      { background: rgba(0,122,255,.12);  color: var(--blue);   }
-.badge-ai_crawler { background: rgba(88,86,214,.12);  color: var(--indigo); }
-.badge-seo_crawler{ background: rgba(255,149,0,.12);  color: var(--orange); }
-.badge-human      { background: rgba(52,199,89,.12);  color: var(--green);  }
-.badge-unknown    { background: var(--bg);             color: var(--text3);  }
+  .vgroup{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:24px 28px;margin-bottom:14px;cursor:pointer;}
+  .vgroup .gh{display:flex;align-items:baseline;gap:10px;}
+  .vgroup .gh .emoji{font-size:20px;}
+  .vgroup .gh .gl{font-size:17px;font-weight:600;}
+  .vgroup .gh .gc{margin-left:auto;font-size:15px;color:var(--sub);font-variant-numeric:tabular-nums;}
+  .vgroup .ghint{font-size:13px;color:var(--sub);margin-top:4px;}
+  .vrow{display:flex;align-items:center;padding:10px 0;border-top:1px solid #f0f0f2;font-size:14px;}
+  .vrow .vn{font-weight:600;min-width:170px;}
+  .vrow .vo{color:var(--sub);min-width:120px;}
+  .vrow .vc{margin-left:auto;font-variant-numeric:tabular-nums;color:var(--sub);}
+  .vrow .vl{min-width:110px;text-align:right;font-size:13px;}
+  .vl.fresh{color:var(--green);font-weight:600;}
+  .vl.stale{color:var(--sub);}
 
-/* Health Grid */
-.health-grid-wrap { display: flex; flex-wrap: wrap; gap: 6px; }
-.hg-cell { width: 32px; height: 32px; border-radius: 6px; cursor: pointer; transition: transform .12s; position: relative; }
-.hg-cell:hover { transform: scale(1.2); z-index: 10; }
-.hg-cell.pass       { background: var(--green); }
-.hg-cell.fail       { background: var(--red); }
-.hg-cell.partial    { background: var(--orange); }
-.hg-cell.unverified { background: var(--border); }
-.hg-tooltip { display: none; position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
-  background: var(--text1); color: #fff; font-size: 11px; white-space: nowrap;
-  padding: 5px 9px; border-radius: 7px; z-index: 20; pointer-events: none; }
-.hg-cell:hover .hg-tooltip { display: block; }
-.hg-legend { display: flex; gap: 16px; margin-top: 12px; font-size: 12px; color: var(--text2); }
-.hg-legend-item { display: flex; align-items: center; gap: 6px; }
-.hg-legend-dot  { width: 10px; height: 10px; border-radius: 3px; }
+  .wcard{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:24px;cursor:pointer;}
+  .wcard .wh{display:flex;align-items:center;gap:10px;}
+  .wcard .code{font-size:11px;font-weight:700;background:var(--bg);color:var(--sub);
+    border-radius:6px;padding:3px 7px;letter-spacing:.04em;}
+  .wcard .wn{font-weight:700;font-size:16px;}
+  .wcard .status{margin-left:auto;width:9px;height:9px;border-radius:50%;}
+  .status.on{background:var(--green);box-shadow:0 0 0 4px #e8f8ec;}
+  .status.off{background:#d2d2d7;}
+  .wcard .wrole{color:var(--blue);font-size:12px;font-weight:600;margin-top:6px;text-transform:uppercase;letter-spacing:.06em;}
+  .wcard .wdesc{font-size:13px;color:var(--sub);margin-top:8px;line-height:1.5;min-height:40px;}
+  .wcard .wmeta{font-size:13px;margin-top:12px;display:flex;justify-content:space-between;color:var(--sub);gap:8px;flex-wrap:wrap;}
+  .wcard .wmeta b{color:var(--ink);font-weight:600;}
 
-/* Agent timeline */
-.timeline { display: flex; flex-direction: column; }
-.tl-item { display: grid; grid-template-columns: 28px 1fr; gap: 0 12px;
-  padding: 10px 0; border-bottom: 1px solid var(--border); }
-.tl-item:last-child { border-bottom: none; }
-.tl-dot-wrap { display: flex; flex-direction: column; align-items: center; padding-top: 4px; }
-.tl-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
-.tl-dot.active  { background: var(--green); box-shadow: 0 0 0 3px rgba(52,199,89,.2); }
-.tl-dot.standby { background: var(--border); }
-.tl-line { flex: 1; width: 1px; background: var(--border); margin: 4px 0; }
-.tl-item:last-child .tl-line { display: none; }
-.tl-top  { display: flex; align-items: baseline; gap: 8px; }
-.tl-agent{ font-weight: 600; font-size: 14px; }
-.tl-code { font-size: 11px; color: var(--text2); background: var(--bg); padding: 1px 6px; border-radius: 5px; }
-.tl-count{ font-weight: 700; font-size: 17px; letter-spacing: -.5px; margin-left: auto; }
-.tl-count.standby { color: var(--text3); font-weight: 400; font-size: 12px; }
-.tl-desc { font-size: 12px; color: var(--text2); margin-top: 2px; }
+  .lrow{display:flex;align-items:center;padding:11px 0;border-top:1px solid #f0f0f2;font-size:14px;}
+  .lrow:first-child{border-top:none;}
+  .lrow .ln{font-weight:600;}
+  .lrow .lc{margin-left:auto;color:var(--sub);font-variant-numeric:tabular-nums;}
+  .empty{color:var(--sub);font-size:14px;padding:14px 0;}
 
-/* Revenue */
-.rev-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 1px; background: var(--border); border-radius: var(--radius); overflow: hidden; }
-.rev-cell { background: var(--surface); padding: 16px 18px; }
-.rev-label{ font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; color: var(--text2); margin-bottom: 6px; }
-.rev-value{ font-size: 24px; font-weight: 700; letter-spacing: -.8px; }
-.rev-note { font-size: 11px; color: var(--text3); margin-top: 3px; }
-
-.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
-@media (max-width: 760px) {
-  .two-col { grid-template-columns: 1fr; }
-  .chart-grid { grid-template-columns: 1fr; }
-  .kpi-grid { grid-template-columns: repeat(2, 1fr); }
-}
-@media print {
-  .topbar { position: static; backdrop-filter: none; }
-  body { background: white; }
-  .card, .kpi-card { box-shadow: none; border: 1px solid var(--border); }
-}
+  #veil{position:fixed;inset:0;background:rgba(0,0,0,.32);backdrop-filter:blur(6px);
+    -webkit-backdrop-filter:blur(6px);opacity:0;pointer-events:none;transition:opacity .2s;z-index:50;}
+  #veil.show{opacity:1;pointer-events:auto;}
+  #sheet{position:fixed;left:50%;top:50%;transform:translate(-50%,-46%) scale(.97);
+    width:min(560px,calc(100vw - 40px));max-height:80vh;overflow:auto;
+    background:var(--card);border-radius:22px;box-shadow:0 24px 80px rgba(0,0,0,.25);
+    padding:34px 36px;opacity:0;pointer-events:none;transition:all .22s cubic-bezier(.2,.8,.3,1);z-index:60;}
+  #sheet.show{opacity:1;pointer-events:auto;transform:translate(-50%,-50%) scale(1);}
+  #sheet h3{font-size:22px;font-weight:700;letter-spacing:-.01em;margin-bottom:18px;padding-right:40px;}
+  #sheet .lvl{margin-bottom:18px;}
+  #sheet .lvl .tag{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;}
+  #sheet .lvl p{font-size:15px;line-height:1.6;}
+  .tag.kid{color:var(--green);} .tag.proj{color:var(--blue);} .tag.dev{color:var(--sub);}
+  #sheet .lvl.dev p{font-size:13px;color:var(--sub);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  #closeS{position:absolute;top:22px;right:22px;width:30px;height:30px;border:none;border-radius:50%;
+    background:var(--bg);color:var(--sub);font-size:15px;cursor:pointer;}
 </style>
 </head>
 <body>
+<div class="wrap">
 
-<div class="topbar">
-  <div style="display:flex;align-items:center;gap:16px;">
-    <div class="topbar-brand">AIAAM <span>Command Center</span></div>
-    <div class="topbar-meta">Updated {{ now }}</div>
-  </div>
-  <button class="btn btn-ghost" onclick="window.print()">Export PDF</button>
-</div>
+<header>
+  <h1>aiaam · pulso</h1>
+  <div class="sub">{{ generated_at }}</div>
+  <div class="hint-global">Toca cualquier tarjeta para entender qué significa.</div>
+</header>
 
-<div class="main">
-
-<!-- KPI Row -->
-<div class="kpi-grid">
-  <div class="kpi-card">
-    <div class="kpi-label">Verified Tools</div>
-    <div class="kpi-value" style="color:var(--green)">{{ verified_count }}</div>
-    <div class="kpi-sub">
-      <span class="kpi-pill" style="background:rgba(255,59,48,.1);color:var(--red)">{{ failed_count }} failed</span>
-      {{ pending_count }} pending
+<!-- HERO -->
+<div class="grid g4">
+  <div class="card" data-x="catalogo">
+    <div class="info">i</div>
+    <div class="k">Catálogo</div>
+    <div class="v">{{ tools.total }}</div>
+    <div class="d">
+      <span class="pill green">{{ tools.verified }} verificadas</span>
+      <span class="pill orange">{{ tools.pending }} pendientes</span>
+      {% if tools.failed %}<span class="pill red">{{ tools.failed }} fallidas</span>{% endif %}
     </div>
   </div>
 
-  <div class="kpi-card">
-    <div class="kpi-label">Requests · 24 h</div>
-    <div class="kpi-value">{{ req_24h }}</div>
-    <div class="kpi-sub">{{ req_7d }} in last 7 days</div>
+  <div class="card" data-x="uso_real">
+    <div class="info">i</div>
+    <div class="k">Uso real · histórico</div>
+    <div class="v">{{ traffic.all.api }}</div>
+    <div class="d">llamadas a la API o MCP desde el primer día.<br>
+      7 días: <b>{{ traffic.d7.api }}</b> · 24 h: <b>{{ traffic.h24.api }}</b></div>
   </div>
 
-  <div class="kpi-card" title="Actual AI coding assistants calling the API — the holy grail">
-    <div class="kpi-label">🤖 Elite AI Agents · 7 d</div>
-    <div class="kpi-value" style="color:var(--blue)">{{ elite_count }}</div>
-    <div class="kpi-sub">Cursor, Copilot, Claude Code…</div>
+  <div class="card" data-x="contribuciones">
+    <div class="info">i</div>
+    <div class="k">Aportadas por agentes</div>
+    <div class="v">{{ tools.contributed }}</div>
+    <div class="d">herramientas que otros agentes IA añadieron solos al catálogo.</div>
   </div>
 
-  <div class="kpi-card" title="AI companies (OpenAI, Perplexity…) crawling AIAAM — gets us into their indexes">
-    <div class="kpi-label">🕷 AI Crawlers · 7 d</div>
-    <div class="kpi-value" style="color:var(--indigo)">{{ ai_crawler_count }}</div>
-    <div class="kpi-sub">GPTbot, Perplexitybot… <span style="color:var(--green);font-weight:600;">↑ good</span></div>
-  </div>
-
-  <div class="kpi-card">
-    <div class="kpi-label">Tokens Saved · 7 d <span style="font-size:9px;color:var(--text3)">(est.)</span></div>
-    <div class="kpi-value" style="color:var(--green)">{{ tokens_saved_est }}</div>
-    <div class="kpi-sub">{{ tokens_saved_note }}</div>
-  </div>
-
-  <div class="kpi-card">
-    <div class="kpi-label">Tax Transactions · 7 d</div>
-    <div class="kpi-value" style="color:var(--blue)">{{ tax_count_7d }}</div>
-    <div class="kpi-sub">agents that paid feedback tax</div>
+  <div class="card" data-x="ruido">
+    <div class="info">i</div>
+    <div class="k">Visitas totales · histórico</div>
+    <div class="v">{{ traffic.all.total }}</div>
+    <div class="d">incluye todo el ruido: escáneres, bots y nuestros propios scripts.</div>
   </div>
 </div>
 
-<!-- Traffic + AI Crawler breakdown -->
-<div class="chart-grid section">
-  <div class="card">
-    <div class="card-header">
-      <span class="card-title">Traffic Volume</span>
-      <div class="toggle-group" id="traffic-toggle">
-        <button class="active" onclick="switchTraffic('7d',this)">7 days</button>
-        <button onclick="switchTraffic('24h',this)">24 h</button>
+<!-- TRAFFIC -->
+<section>
+  <h2>Tráfico · 14 días</h2>
+  <div class="s">Gris = todas las visitas. Azul = solo las que usan de verdad la API o el MCP. La distancia entre ambas es el ruido.</div>
+  <div class="chart-card" data-x="trafico">
+    <div class="legend">
+      <span><span class="dot" style="background:#e8e8ed"></span>Todo</span>
+      <span><span class="dot" style="background:var(--blue)"></span>Uso real (API + MCP)</span>
+    </div>
+    <div class="bars" id="bars"></div>
+  </div>
+</section>
+
+<!-- VISITORS -->
+<section>
+  <h2>Quién nos visita</h2>
+  <div class="s">Visitantes con nombre y apellido, contados desde el primer día. «Visto» = la última vez que pasaron por aquí.</div>
+  {% for g in visitor_groups %}
+  <div class="vgroup" data-x="grupo" data-glabel="{{ g.label }}" data-ghint="{{ g.hint }}">
+    <div class="gh">
+      <span class="emoji">{{ g.emoji }}</span>
+      <span class="gl">{{ g.label }}</span>
+      <span class="gc">{{ g.total }} visitas</span>
+    </div>
+    <div class="ghint">{{ g.hint }}</div>
+    {% for m in g.members %}
+    <div class="vrow">
+      <span class="vn">{{ m.name }}</span>
+      <span class="vo">{{ m.org }}</span>
+      <span class="vc">{{ m.count }}</span>
+      <span class="vl {{ 'fresh' if ('min' in m.last_ago or 'ahora' in m.last_ago or ' h' in m.last_ago) else 'stale' }}">{{ m.last_ago }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% endfor %}
+</section>
+
+<!-- WORKERS -->
+<section>
+  <h2>Nuestros trabajadores</h2>
+  <div class="s">Los agentes B de AIAAM. Punto verde = ha trabajado en los últimos 7 días. Si pone «nunca», es la verdad: ese agente aún no ha corrido contra esta base de datos de producción.</div>
+  <div class="grid g4">
+    {% for w in workers %}
+    <div class="wcard" data-x="worker" data-wname="{{ w.name }}" data-wdesc="{{ w.kid_desc }}" data-wcode="{{ w.code }}">
+      <div class="wh">
+        <span class="code">{{ w.code }}</span>
+        <span class="wn">{{ w.name }}</span>
+        <span class="status {{ 'on' if w.active else 'off' }}"></span>
       </div>
-    </div>
-    <div class="card-body">
-      <div class="chart-wrap"><canvas id="trafficChart"></canvas></div>
-    </div>
-  </div>
-
-  <div class="card">
-    <div class="card-header">
-      <span class="card-title">AI Crawler Breakdown · 7 d</span>
-      <span style="font-size:11px;color:var(--indigo);font-weight:600;">↑ being indexed by AI companies</span>
-    </div>
-    <div class="card-body">
-      <div class="chart-wrap"><canvas id="aiCrawlerChart"></canvas></div>
-    </div>
-  </div>
-</div>
-
-<!-- Traffic breakdown + Top Tools -->
-<div class="chart-grid section">
-  <div class="card">
-    <div class="card-header"><span class="card-title">Traffic Breakdown · 7 d</span></div>
-    <div class="card-body">
-      <div class="chart-wrap"><canvas id="llmChart"></canvas></div>
-    </div>
-  </div>
-
-  <div class="card">
-    <div class="card-header"><span class="card-title">Top 10 Tools · 7 days</span></div>
-    <div class="card-body">
-      <div class="chart-wrap" style="height:280px"><canvas id="topToolsChart"></canvas></div>
-    </div>
-  </div>
-</div>
-
-<!-- Visitor Intelligence Table -->
-<div class="section">
-  <div class="section-header">
-    <span class="section-title">Visitor Intelligence · Last 7 days</span>
-    <span style="font-size:12px;color:var(--text2)">5-tier classification by User-Agent</span>
-  </div>
-  <div class="card">
-    <div class="card-body" style="padding:0;">
-      <table style="width:100%;border-collapse:collapse;font-size:13px;">
-        <thead>
-          <tr style="border-bottom:2px solid var(--border);background:var(--bg);">
-            <th style="text-align:left;padding:10px 20px;font-weight:600;color:var(--text2);font-size:10px;text-transform:uppercase;letter-spacing:.5px;">Source</th>
-            <th style="text-align:left;padding:10px 12px;font-weight:600;color:var(--text2);font-size:10px;text-transform:uppercase;letter-spacing:.5px;">Type</th>
-            <th style="text-align:left;padding:10px 12px;font-weight:600;color:var(--text2);font-size:10px;text-transform:uppercase;letter-spacing:.5px;">User-Agent sample</th>
-            <th style="text-align:right;padding:10px 20px;font-weight:600;color:var(--text2);font-size:10px;text-transform:uppercase;letter-spacing:.5px;">Reqs · 7d</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for row in visitor_table %}
-          {% set t = row.agent_type %}
-          <tr style="border-bottom:1px solid var(--border);
-            {% if t == 'elite' %}background:rgba(0,122,255,.03);{% endif %}
-            {% if t == 'ai_crawler' %}background:rgba(88,86,214,.03);{% endif %}">
-            <td style="padding:10px 20px;font-weight:{% if t in ('elite','ai_crawler') %}700{% else %}500{% endif %};">
-              {% if t == 'elite' %}
-                <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--blue);margin-right:8px;vertical-align:middle;box-shadow:0 0 0 3px rgba(0,122,255,.2);"></span>
-              {% elif t == 'ai_crawler' %}
-                <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--indigo);margin-right:8px;vertical-align:middle;box-shadow:0 0 0 3px rgba(88,86,214,.2);"></span>
-              {% elif t == 'seo_crawler' %}
-                <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--orange);margin-right:8px;vertical-align:middle;"></span>
-              {% elif t == 'human' %}
-                <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);margin-right:8px;vertical-align:middle;"></span>
-              {% else %}
-                <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--border);margin-right:8px;vertical-align:middle;"></span>
-              {% endif %}
-              {{ row.source }}
-            </td>
-            <td style="padding:10px 12px;">
-              {% if t == 'elite' %}
-                <span class="badge badge-elite">🤖 Elite AI Agent</span>
-              {% elif t == 'ai_crawler' %}
-                <span class="badge badge-ai_crawler">🕷 AI Crawler</span>
-              {% elif t == 'seo_crawler' %}
-                <span class="badge badge-seo_crawler">🔍 SEO Crawler</span>
-              {% elif t == 'human' %}
-                <span class="badge badge-human">👤 Human</span>
-              {% else %}
-                <span class="badge badge-unknown">❓ Bot/Unknown</span>
-              {% endif %}
-            </td>
-            <td style="padding:10px 12px;color:var(--text2);font-size:11px;font-family:monospace;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ row.ua_sample }}</td>
-            <td style="padding:10px 20px;text-align:right;font-weight:700;font-size:15px;font-variant-numeric:tabular-nums;">{{ row.count }}</td>
-          </tr>
-          {% endfor %}
-          {% if not visitor_table %}
-          <tr><td colspan="4" style="padding:24px 20px;text-align:center;color:var(--text3);">No requests yet</td></tr>
-          {% endif %}
-        </tbody>
-      </table>
-
-      <!-- Legend -->
-      <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:16px;flex-wrap:wrap;font-size:11px;color:var(--text2);">
-        <span><span class="badge badge-elite">🤖 Elite AI Agent</span> &nbsp;Cursor, Copilot, Claude Code — making API calls</span>
-        <span><span class="badge badge-ai_crawler">🕷 AI Crawler</span> &nbsp;GPTbot, Perplexitybot — indexing AIAAM content</span>
-        <span><span class="badge badge-seo_crawler">🔍 SEO Crawler</span> &nbsp;MJ12bot, Ahrefsbot — neutral</span>
-        <span><span class="badge badge-human">👤 Human</span> &nbsp;Real browsers (Chrome/Firefox ≥100)</span>
-        <span><span class="badge badge-unknown">❓ Bot/Unknown</span> &nbsp;Fake or old UAs</span>
+      <div class="wrole">{{ w.role }}</div>
+      <div class="wdesc">{{ w.kid_desc }}</div>
+      <div class="wmeta">
+        <span>Última vez: <b>{{ w.last_run_ago }}</b></span>
+        <span><b>{{ w.runs_total }}</b> turnos</span>
       </div>
+      {% if w.runs_total %}
+      <div class="wmeta">
+        <span><b>{{ w.last_processed }}</b> procesadas · <b>{{ w.last_new }}</b> nuevas{% if w.last_failed %} · <b style="color:var(--red)">{{ w.last_failed }}</b> fallos{% endif %}</span>
+      </div>
+      {% endif %}
     </div>
+    {% endfor %}
   </div>
-</div>
+</section>
 
-<!-- Health Grid -->
-<div class="section">
-  <div class="section-header">
-    <span class="section-title">Health Grid — {{ verified_count }} Verified Tools</span>
-  </div>
-  <div class="card">
-    <div class="card-body">
-      <div class="health-grid-wrap">
-        {% for cell in health_grid %}
-        <div class="hg-cell {{ cell.status }}" title="{{ cell.aid }}">
-          <div class="hg-tooltip">
-            <strong>{{ cell.aid }}</strong><br>
-            {{ cell.platform }} · {{ cell.status }}<br>
-            {% if cell.score %}score {{ cell.score }}{% endif %} {{ cell.checked_at }}
-          </div>
-        </div>
+<!-- TOOLS -->
+<section>
+  <div class="grid g2">
+    <div class="card" data-x="top_tools">
+      <div class="info">i</div>
+      <div class="k">Herramientas más pedidas · 7 días</div>
+      <div style="margin-top:14px;">
+        {% for t in top_tools %}
+        <div class="lrow"><span class="ln">{{ t.aid }}</span><span class="lc">{{ t.count }}</span></div>
+        {% else %}
+        <div class="empty">Sin peticiones de contratos esta semana.</div>
         {% endfor %}
       </div>
-      <div class="hg-legend">
-        <div class="hg-legend-item"><div class="hg-legend-dot" style="background:var(--green)"></div>Sandbox pass</div>
-        <div class="hg-legend-item"><div class="hg-legend-dot" style="background:var(--red)"></div>Fail</div>
-        <div class="hg-legend-item"><div class="hg-legend-dot" style="background:var(--orange)"></div>Partial</div>
-        <div class="hg-legend-item"><div class="hg-legend-dot" style="background:var(--border)"></div>No check yet</div>
+    </div>
+    <div class="card" data-x="recientes">
+      <div class="info">i</div>
+      <div class="k">Últimas contribuciones de agentes</div>
+      <div style="margin-top:14px;">
+        {% for c in recent_contribs %}
+        <div class="lrow"><span class="ln">{{ c.aid }}</span><span class="lc">{{ c.src }} · {{ c.ago }}</span></div>
+        {% else %}
+        <div class="empty">Todavía ninguna. El primer agente que use contribute_tool aparecerá aquí.</div>
+        {% endfor %}
       </div>
     </div>
   </div>
+</section>
+
+</div><!-- /wrap -->
+
+<div id="veil"></div>
+<div id="sheet">
+  <button id="closeS">✕</button>
+  <h3 id="mTitle"></h3>
+  <div class="lvl"><div class="tag kid">🧒 Para un niño de 10 años</div><p id="mKid"></p></div>
+  <div class="lvl"><div class="tag proj">🎯 Qué significa para aiaam</div><p id="mProj"></p></div>
+  <div class="lvl dev"><div class="tag dev">🔧 Detalle técnico</div><p id="mDev"></p></div>
 </div>
-
-<!-- Agent Briefing + Revenue -->
-<div class="two-col">
-  <div class="section" style="margin-bottom:0">
-    <div class="section-header"><span class="section-title">Agent Daily Briefing · 24 h</span></div>
-    <div class="card">
-      <div class="card-body" style="padding-top:8px;padding-bottom:8px;">
-        <div class="timeline">
-          {% for ag in agent_briefing %}
-          <div class="tl-item">
-            <div class="tl-dot-wrap">
-              <div class="tl-dot {% if ag.count > 0 %}active{% else %}standby{% endif %}"></div>
-              <div class="tl-line"></div>
-            </div>
-            <div class="tl-content">
-              <div class="tl-top">
-                <span class="tl-agent">{{ ag.name }}</span>
-                <span class="tl-code">{{ ag.code }}</span>
-                {% if ag.ran_at %}
-                <span class="tl-count">{{ ag.count }}<span style="font-size:11px;color:var(--text2);font-weight:400;"> {{ ag.unit }}</span></span>
-                {% else %}
-                <span class="tl-count standby">logs not synced</span>
-                {% endif %}
-              </div>
-              <div class="tl-desc">{{ ag.desc }}
-                {% if ag.ran_at %}&nbsp;·&nbsp;<span style="color:var(--green);font-size:11px;">ran {{ ag.ran_at }}{% if ag.duration_s %} ({{ ag.duration_s }}s){% endif %}</span>{% endif %}
-                {% if ag.summary %}<br><span style="font-family:monospace;font-size:10px;color:var(--text3);">{{ ag.summary }}</span>{% endif %}
-              </div>
-            </div>
-          </div>
-          {% endfor %}
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="section" style="margin-bottom:0">
-    <div class="section-header"><span class="section-title">Revenue — Confirmed Only</span></div>
-    <div class="card" style="margin-bottom:16px;">
-      <div class="rev-grid">
-        <div class="rev-cell">
-          <div class="rev-label">Confirmed Commissions</div>
-          <div class="rev-value" style="color:{% if confirmed_revenue > 0 %}var(--green){% else %}var(--text2){% endif %}">{{ confirmed_revenue }}</div>
-          <div class="rev-note">referral_confirmed = true</div>
-        </div>
-        <div class="rev-cell">
-          <div class="rev-label">Active Programs</div>
-          <div class="rev-value" style="color:{% if monetizable_count > 0 %}var(--green){% else %}var(--text2){% endif %}">{{ monetizable_count }}</div>
-          <div class="rev-note">monetizable tools</div>
-        </div>
-        <div class="rev-cell" style="grid-column:span 2;">
-          <div class="rev-label">Confirmed Revenue</div>
-          <div class="rev-value" style="color:var(--text2)">$0.00</div>
-          <div class="rev-note">No affiliate program active yet</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="section-header"><span class="section-title" style="font-size:15px;">Affiliate Pipeline</span></div>
-    <div class="card">
-      <div class="card-body">
-        {% set programs = [
-          ("Firecrawl",  "firecrawl-v1",       "Contact pending"),
-          ("LangFuse",   "langfuse-python-v1",  "Contact pending"),
-          ("Qdrant",     "qdrant-v1",           "Contact pending"),
-        ] %}
-        <table style="width:100%;border-collapse:collapse;font-size:13px;">
-          <thead>
-            <tr style="border-bottom:1px solid var(--border);">
-              <th style="text-align:left;padding:6px 0;color:var(--text2);font-weight:600;font-size:11px;">Partner</th>
-              <th style="text-align:left;padding:6px 0;color:var(--text2);font-weight:600;font-size:11px;">Tool AID</th>
-              <th style="text-align:right;padding:6px 0;color:var(--text2);font-weight:600;font-size:11px;">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for name, aid, note in programs %}
-            <tr style="border-bottom:1px solid var(--border);">
-              <td style="padding:8px 0;font-weight:600;">{{ name }}</td>
-              <td style="padding:8px 0;color:var(--text2);font-family:monospace;font-size:12px;">{{ aid }}</td>
-              <td style="padding:8px 0;text-align:right;">
-                <span style="background:var(--bg);color:var(--text2);padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;">{{ note }}</span>
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-</div>
-
-</div><!-- /main -->
 
 <script>
-const traffic7d  = {{ traffic_7d | safe }};
-const traffic24h = {{ traffic_24h | safe }};
-const topTools   = {{ top_tools_json | safe }};
-const llmData    = {{ llm_bg_json | safe }};
-const aiCrawlerData = {{ ai_crawler_json | safe }};
-
-Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif';
-Chart.defaults.font.size   = 12;
-Chart.defaults.color       = '#6E6E73';
-
-const P = {
-  blue:   'rgba(0,122,255,',   green:  'rgba(52,199,89,',
-  red:    'rgba(255,59,48,',   orange: 'rgba(255,149,0,',
-  purple: 'rgba(175,82,222,',  teal:   'rgba(90,200,250,',
-  indigo: 'rgba(88,86,214,',   gray:   'rgba(142,142,147,',
-};
-const solid = c => c+'1)';
-const muted = c => c+'.15)';
-
-/* Traffic chart */
-let trafficMode = '7d';
-const trafficCtx = document.getElementById('trafficChart').getContext('2d');
-const trafficChart = new Chart(trafficCtx, {
-  type: 'line',
-  data: {
-    labels: traffic7d.labels,
-    datasets: [
-      { label: 'All requests', data: traffic7d.data,
-        borderColor: 'rgba(142,142,147,0.5)', backgroundColor: 'rgba(142,142,147,0.07)',
-        borderWidth: 1.5, fill: true, tension: 0.4, pointRadius: 2 },
-      { label: 'API endpoint hits', data: traffic7d.real,
-        borderColor: solid(P.blue), backgroundColor: muted(P.blue),
-        borderWidth: 2, fill: true, tension: 0.4, pointRadius: 3,
-        pointBackgroundColor: solid(P.blue) }
-    ]
+const X = {
+  catalogo: {
+    t: "Catálogo de herramientas",
+    kid: "Imagina una estantería llena de manuales de instrucciones. Cada manual le explica a un robot cómo usar un programa: cómo se instala y qué hace. Las «verificadas» son las que ya hemos probado y sabemos que dicen la verdad. Las «pendientes» todavía esperan su examen.",
+    proj: "Es nuestro producto. Cuanto más grande y más verificado el catálogo, más útil es aiaam para los agentes. Las pendientes no salen en el escaparate público (llms.txt) hasta pasar la verificación — calidad antes que cantidad.",
+    dev: "tools table. verified=True tras el triple-check de sandbox_sanitizer (B2). pending = verified IS NULL. Solo verified=True aparece en /llms.txt y sitemap.xml."
   },
-  options: {
-    responsive: true, maintainAspectRatio: false,
-    plugins: { legend: { display: true, position: 'top', labels: { boxWidth: 12, font: { size: 11 } } } },
-    scales: {
-      x: { grid: { display: false }, border: { display: false } },
-      y: { grid: { color: 'rgba(0,0,0,.04)' }, border: { display: false }, beginAtZero: true }
-    }
+  uso_real: {
+    t: "Uso real",
+    kid: "De toda la gente que pasa por delante de una tienda, solo cuenta la que entra y compra algo. Esto es eso: las veces que alguien pidió de verdad un contrato o usó nuestras herramientas, no las veces que solo miró el escaparate.",
+    proj: "Es LA métrica. Si este número sube, aiaam está siendo usado. Mostramos el histórico completo para no engañarnos con ventanas de 24 h que suben y bajan por azar.",
+    dev: "COUNT(request_logs) WHERE path LIKE '/api/%' OR '/mcp%'. Sin filtrar por UA: incluye también nuestros propios scripts (compáralo con la tarjeta de ruido)."
+  },
+  contribuciones: {
+    t: "Aportadas por agentes IA",
+    kid: "Es como si los visitantes de una biblioteca trajeran libros nuevos ellos mismos. Aquí contamos cuántos manuales nos han traído otros robots, sin que nadie se lo pida.",
+    proj: "El motor de crecimiento de IA a IA. Si esto sube sin que nosotros hagamos nada, el efecto red funciona. Es la métrica clave para saber si aiaam puede crecer solo.",
+    dev: "COUNT(tools) WHERE translator_used='agent-contributed'. Entran como verified=NULL vía POST /api/v1/contribute o MCP contribute_tool. Rate limit 5/h por IP."
+  },
+  ruido: {
+    t: "Visitas totales (con ruido)",
+    kid: "Todas las veces que ALGUIEN o ALGO tocó nuestra puerta: carteros, vendedores, curiosos… y también nuestros propios robots de limpieza. Es un número grande pero engañoso — por eso lo separamos del «uso real».",
+    proj: "Sirve para comparar con el uso real y medir el ruido. Si las visitas suben pero el uso real no, solo nos escanean más, no nos usan más.",
+    dev: "COUNT(request_logs) sin filtros. Incluye escáneres WordPress, bots SEO, health checks y scripts propios (python-requests, curl, testclient)."
+  },
+  trafico: {
+    t: "Tráfico de 14 días",
+    kid: "Cada barra es un día. La parte gris es toda la gente que pasó; la azul, los que entraron a usar algo de verdad. Si un día casi no hay azul, ese día nadie usó la tienda aunque pasara mucha gente por delante.",
+    proj: "La tendencia importa más que cualquier día suelto. Queremos que el azul crezca semana a semana. Picos azules aislados suelen ser nuestros propios scripts de mantenimiento.",
+    dev: "Agregación diaria de request_logs (14 días). Serie 'api' = paths /api/* + /mcp*. Render server-side, cero dependencias JS externas."
+  },
+  grupo: {
+    t: "", kid: "", proj: "",
+    dev: "Clasificación server-side por firma de User-Agent (_VISITOR_SIGS en main.py). «Visto» = MAX(timestamp) por visitante. Conteo histórico completo, sin ventanas."
+  },
+  worker: {
+    t: "", kid: "",
+    proj: "Cada agente B es un programa nuestro que corre cuando lo lanzamos (en local o por GitHub Actions), no vive dentro del servidor. Si pone «nunca», no ha corrido contra la base de datos de producción: honestidad ante todo.",
+    dev: "agent_logs table. Cada run registra items_processed / items_new / items_failed + duración + summary. Punto verde = run_at dentro de los últimos 7 días."
+  },
+  top_tools: {
+    t: "Herramientas más pedidas",
+    kid: "Los manuales que más veces nos han pedido esta semana. Como la lista de los libros más prestados de la biblioteca.",
+    proj: "Dice qué buscan los agentes — y por tanto qué herramientas merecen mejor contrato y verificación prioritaria.",
+    dev: "GROUP BY path sobre /api/v1/tools/{aid}, ventana 7d, excluye 'trending'. Incluye peticiones de nuestros propios scripts."
+  },
+  recientes: {
+    t: "Últimas contribuciones",
+    kid: "Los últimos manuales que otros robots trajeron a la biblioteca, con la fecha de cuándo los trajeron.",
+    proj: "Cada fila es un agente externo que no solo usó aiaam: lo mejoró. Que aparezcan filas sin tocar nada = el efecto red está girando.",
+    dev: "tools WHERE translator_used='agent-contributed' ORDER BY created_at DESC LIMIT 8. verified=NULL hasta que B2 las valide."
   }
-});
+};
 
-function switchTraffic(mode, btn) {
-  document.querySelectorAll('#traffic-toggle button').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  const d = mode === '7d' ? traffic7d : traffic24h;
-  trafficChart.data.labels            = d.labels;
-  trafficChart.data.datasets[0].data  = d.data;
-  trafficChart.data.datasets[1].data  = d.real;
-  trafficChart.update();
+const days = {{ series_days | tojson }};
+const sTot = {{ series_total | tojson }};
+const sApi = {{ series_api | tojson }};
+(function(){
+  const max = Math.max(1, ...sTot);
+  const el = document.getElementById("bars");
+  days.forEach((d,i)=>{
+    const col = document.createElement("div"); col.className="bcol";
+    const tot = document.createElement("div"); tot.className="btot";
+    tot.style.height = Math.max(2,(sTot[i]/max*100)) + "%";
+    tot.title = d+" · "+sTot[i]+" visitas / "+sApi[i]+" reales";
+    const api = document.createElement("div"); api.className="bapi";
+    api.style.height = sTot[i] ? (sApi[i]/sTot[i]*100)+"%" : "0%";
+    tot.appendChild(api);
+    const lab = document.createElement("div"); lab.className="blab";
+    lab.textContent = (i%2===0) ? d.split(" ")[0] : "";
+    col.appendChild(tot); col.appendChild(lab);
+    el.appendChild(col);
+  });
+})();
+
+const veil=document.getElementById("veil"), sheet=document.getElementById("sheet");
+function openX(key, el){
+  let e = Object.assign({}, X[key] || {});
+  if(key==="grupo"){
+    e.t = el.dataset.glabel;
+    e.kid = el.dataset.ghint;
+    e.proj = "Cuanto más arriba está el grupo en esta página, más valioso es para aiaam. Los agentes de programación son el objetivo final; los indexadores de IA son la semilla que hace que las IAs nos conozcan.";
+  }
+  if(key==="worker"){
+    e.t = el.dataset.wcode+" · "+el.dataset.wname;
+    e.kid = el.dataset.wdesc;
+  }
+  document.getElementById("mTitle").textContent = e.t || "";
+  document.getElementById("mKid").textContent  = e.kid || "";
+  document.getElementById("mProj").textContent = e.proj || "";
+  document.getElementById("mDev").textContent  = e.dev || "";
+  veil.classList.add("show"); sheet.classList.add("show");
 }
-
-/* AI Crawler breakdown doughnut */
-(function(){
-  const labels = Object.keys(aiCrawlerData);
-  const values = labels.map(k => aiCrawlerData[k]);
-  const COLORS_AI = [solid(P.indigo), solid(P.teal), solid(P.purple),
-                     solid(P.blue), solid(P.green), solid(P.orange), solid(P.gray)];
-  new Chart(document.getElementById('aiCrawlerChart').getContext('2d'), {
-    type: 'doughnut',
-    data: { labels, datasets: [{ data: values, backgroundColor: COLORS_AI, borderWidth: 2, borderColor: '#fff', hoverOffset: 6 }] },
-    options: {
-      responsive: true, maintainAspectRatio: false, cutout: '58%',
-      plugins: { legend: { position: 'right', labels: { boxWidth: 10, borderRadius: 3, padding: 12, font: { size: 11 } } } }
-    }
-  });
-})();
-
-/* Traffic breakdown bar */
-(function(){
-  const labels = Object.keys(llmData);
-  const values = labels.map(k => llmData[k]);
-  const COLORS = {
-    'Elite AI Agents': solid(P.blue),
-    'AI Crawlers':     solid(P.indigo),
-    'SEO Crawlers':    solid(P.orange),
-    'Humans':          solid(P.green),
-    'Unknown Bots':    solid(P.gray),
-  };
-  new Chart(document.getElementById('llmChart').getContext('2d'), {
-    type: 'bar',
-    data: { labels, datasets: [{ label: 'Requests', data: values,
-      backgroundColor: labels.map(l => COLORS[l] || solid(P.gray)),
-      borderRadius: 7, borderSkipped: false }] },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { grid: { display: false }, border: { display: false } },
-        y: { grid: { color: 'rgba(0,0,0,.04)' }, border: { display: false }, beginAtZero: true }
-      }
-    }
-  });
-})();
-
-/* Top Tools horizontal bar */
-(function(){
-  const labels = topTools.length ? topTools.map(t => t.aid) : ['No data yet'];
-  const values = topTools.length ? topTools.map(t => t.count) : [0];
-  new Chart(document.getElementById('topToolsChart').getContext('2d'), {
-    type: 'bar',
-    data: { labels, datasets: [{ label: 'Requests', data: values,
-      backgroundColor: solid(P.blue), borderRadius: 6, borderSkipped: false }] },
-    options: {
-      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { grid: { color: 'rgba(0,0,0,.04)' }, border: { display: false }, beginAtZero: true },
-        y: { grid: { display: false }, border: { display: false }, ticks: { font: { size: 11 } } }
-      }
-    }
-  });
-})();
+function closeX(){ veil.classList.remove("show"); sheet.classList.remove("show"); }
+document.querySelectorAll("[data-x]").forEach(el=>{
+  el.addEventListener("click",()=>openX(el.dataset.x, el));
+});
+veil.addEventListener("click",closeX);
+document.getElementById("closeS").addEventListener("click",closeX);
+document.addEventListener("keydown",e=>{ if(e.key==="Escape") closeX(); });
 </script>
 </body>
 </html>
